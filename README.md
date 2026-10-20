@@ -10,7 +10,7 @@ It's the most accurate open-source transcription model.
 You can use the model [here](https://muscriptor.kyutai.org) or self-host it using this repository.
 
 
-[Use it](https://muscriptor.kyutai.org) | [Paper](https://arxiv.org/abs/2607.08168v1) | [HuggingFace](https://huggingface.co/MuScriptor)
+[Use it](https://muscriptor.kyutai.org) | [Paper](https://arxiv.org/abs/2607.08168v2) | [HuggingFace](https://huggingface.co/MuScriptor)
 
 <!-- TODO: record the demo GIF (web UI piano roll), save it as assets/demo.gif,
      then uncomment:
