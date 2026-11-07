@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -102,6 +103,10 @@ def create_studio_app(
         except ModelLoadError as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
         return {"active": holder.active}
+
+    @app.get("/studio", include_in_schema=False)
+    async def studio_root():
+        return RedirectResponse("/studio/")
 
     app.include_router(api)
 

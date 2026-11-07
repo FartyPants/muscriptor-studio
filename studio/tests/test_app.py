@@ -81,6 +81,7 @@ def test_both_interfaces_are_served(weights, exporter, site):
     c = client(holder_for(weights, exporter), site)
     assert c.get("/").text == "original-ui"
     assert c.get("/studio/").text == "studio-ui"
+    assert c.get("/studio").text == "studio-ui"
     assert c.get("/health").json() == {"status": "ok"}
 
 
