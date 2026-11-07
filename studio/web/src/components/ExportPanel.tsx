@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
 import { label } from "../instruments";
+import { renderAudio } from "../renderAudio";
 import { Button, Checkbox, Segmented, Select, SidePanel } from "./ui";
 
 const GRIDS = [
@@ -270,7 +271,7 @@ export function ExportPanel(props: {
             extension=".wav"
             busy={busy === "wav"}
             disabled={anyBusy || noneOn}
-            onClick={() => run("wav", async () => saveBlob(await api.renderAudio(await midi()), `${stem}.wav`))}
+            onClick={() => run("wav", async () => saveBlob(await renderAudio(await midi()), `${stem}.wav`))}
           />
         </div>
 
