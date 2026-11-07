@@ -6,7 +6,7 @@ import { requestStart } from "../hooks/useProjectTranscription";
 
 export function NewTranscription() {
   const [models, setModels] = useState<ModelsState | null>(null);
-  const [size, setSize] = useState<ModelSize>("large");
+  const [size, setSize] = useState<ModelSize>("medium");
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -24,7 +24,7 @@ WEIGHTS: dict[str, Path] = {
 
 # The original interface has no model picker, so it gets this one when it needs
 # one. Studio always chooses first.
-ORIGINAL_UI_MODEL = "large"
+ORIGINAL_UI_MODEL = "medium"
 
 
 class ModelBusyError(RuntimeError):
