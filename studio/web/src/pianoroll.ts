@@ -1,6 +1,8 @@
 import { INSTRUMENT_ORDER } from "./audio";
 
 export interface RollNote {
+  /** Project note id; unset for notes still streaming in. */
+  id?: string;
   pitch: number;
   start: number;
   end: number;
@@ -104,6 +106,8 @@ const MIN_BAR_PX = 40;
 const BAR_STRIP = "rgba(255, 255, 255, 0.01)";
 /** Beat subdivisions are dropped below this spacing (px) rather than crowding the bars. */
 const MIN_BEAT_PX = 12;
+/** Height of the time ruler across the top of the note area. */
+export const RULER_H = 26;
 
 /** Reveal duration in ms — how long a note takes to grow to full width. */
 const REVEAL_MS = 280;
@@ -319,7 +323,9 @@ export class PianoRoll {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
     this.resize();
-    window.addEventListener("resize", () => this.resize());
+    // The layout changes the canvas too (a progress bar leaving, a side panel),
+    // and a stale buffer draws stretched.
+    new ResizeObserver(() => this.resize()).observe(canvas);
   }
 
   private resize() {
@@ -328,6 +334,57 @@ export class PianoRoll {
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /** Replace every note. Times are display times, already on the beats. */
+  setNotes(notes: RollNote[]) {
+    this.notes = notes;
+    this.latestNoteStart = notes.reduce((max, n) => Math.max(max, n.start), 0);
+    // One sweep per pitch: how many later-drawn notes each one sits behind.
+    const byPitch = new Map<number, RollNote[]>();
+    for (const n of notes) {
+      n.stackOffset = 0;
+      const row = byPitch.get(n.pitch);
+      if (row) row.push(n);
+      else byPitch.set(n.pitch, [n]);
+    }
+    for (const row of byPitch.values()) {
+      row.sort((a, b) => a.start - b.start);
+      for (let i = 0; i < row.length; i++) {
+        for (let j = i + 1; j < row.length && row[j].start < row[i].end; j++) {
+          row[i].stackOffset!++;
+        }
+      }
+    }
+  }
+
+  /** Back to the default zoom: all 88 keys, default time scale. */
+  resetZoom() {
+    this._pxPerSec = PX_PER_SEC;
+    this.pxPerPitch = null;
+    this.pitchTop = DEFAULT_PITCH_TOP;
+    this.noteGesture();
+  }
+
+  /** Zoom around the view's center, for the toolbar buttons. */
+  zoomStep(factor: number) {
+    this.zoomTime(factor, this.canvas.getBoundingClientRect().width / 2);
+  }
+
+  /** Frame every note, in both time and pitch. */
+  fitNotes() {
+    if (!this.notes.length) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const end = this.maxEnd();
+    const pitches = this.notes.map((n) => n.pitch);
+    const low = Math.min(...pitches);
+    const high = Math.max(...pitches);
+    this._pxPerSec = Math.max(1, (rect.width - KEY_WIDTH) / Math.max(1, end));
+    this.pxPerPitch = (rect.height - RULER_H) / (high - low + 3);
+    // One row above the highest note, plus room for the ruler.
+    this.pitchTop = high + 2 + RULER_H / this.pxPerPitch;
+    this.userOffset = 0;
+    this.noteGesture();
   }
 
   addNote(n: RollNote) {
@@ -781,6 +838,8 @@ export class PianoRoll {
     }
     ctx.globalAlpha = 1;
 
+    this.drawRuler(ctx, contentW, offsetSec, pxPerSec);
+
     // Playhead
     const px = KEY_WIDTH + (this.playhead - offsetSec) * pxPerSec;
     ctx.strokeStyle = palette().playhead;
@@ -793,6 +852,38 @@ export class PianoRoll {
     ctx.restore();
 
     this.drawKeyboard(ctx, H, rowH, pitchTop);
+  }
+
+  /** Time labels across the top, spaced so they never crowd. */
+  private drawRuler(
+    ctx: CanvasRenderingContext2D,
+    contentW: number,
+    offsetSec: number,
+    pxPerSec: number,
+  ) {
+    ctx.fillStyle = "#101010";
+    ctx.fillRect(KEY_WIDTH, 0, contentW, RULER_H);
+    const step = [1, 2, 5, 10, 15, 30, 60, 120, 300].find((s) => s * pxPerSec >= 60) ?? 600;
+    ctx.font = palette().labelFont;
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#c8c8c8";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.lineWidth = 1;
+    const first = Math.floor(offsetSec / step) * step;
+    const viewEnd = offsetSec + contentW / pxPerSec;
+    for (let t = first; t <= viewEnd; t += step) {
+      const x = KEY_WIDTH + (t - offsetSec) * pxPerSec;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, RULER_H - 6);
+      ctx.lineTo(x + 0.5, RULER_H);
+      ctx.stroke();
+      ctx.fillText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`, x + 4, RULER_H / 2 - 2);
+    }
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+    ctx.beginPath();
+    ctx.moveTo(KEY_WIDTH, RULER_H + 0.5);
+    ctx.lineTo(KEY_WIDTH + contentW, RULER_H + 0.5);
+    ctx.stroke();
   }
 
   /** Draw the piano-key strip down the left edge, aligned to the pitch axis. */

@@ -95,7 +95,7 @@
 :root {
   --roll-stripe: #16161c; /* C-row stripes, key separators, octave labels */
   --roll-grid: #22222a;
-  --roll-playhead: #ff5577;
+  --roll-playhead: #8fc1f0;
   --roll-key-black: #23232b;
   --roll-key-white: #cfd2dc;
 }

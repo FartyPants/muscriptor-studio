@@ -75,6 +75,7 @@ export function PianoRollCanvas(props: {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       if (x >= KEY_WIDTH) {
+        setUserScrolled(false);
         scrub = { wasPlaying: audio.state === "started" };
         if (scrub.wasPlaying) audio.pause();
         scrubTo(e.clientX);

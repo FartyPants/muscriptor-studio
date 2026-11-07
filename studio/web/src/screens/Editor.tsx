@@ -1,13 +1,31 @@
-import { useEffect, useRef, useState } from "react";
-import { api, type ProjectDoc } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, type ProjectDoc, type ProjectNote } from "../api";
 import type { AudioEngine } from "../audio";
 import { Button } from "../components/Button";
+import { InstrumentPanel } from "../components/InstrumentPanel";
 import { PianoRollCanvas } from "../components/PianoRollCanvas";
+import { RollToolbar } from "../components/RollToolbar";
+import { TopBar } from "../components/TopBar";
+import { Transport } from "../components/Transport";
+import { DEFAULT_CLEANUP, exportMidi, NO_OVERRIDES, saveBlob } from "../export";
 import { takeStartRequest, useProjectTranscription } from "../hooks/useProjectTranscription";
+import { metronomeClicks } from "../metronome";
 import type { PianoRoll } from "../pianoroll";
 import { formatClock, ProgressEstimator } from "../progress";
 
 type Phase = "loading" | "idle" | "transcribing" | "ready";
+
+/** Stored notes, moved onto the beats as the roll and audio show them. */
+function displayNotes(doc: ProjectDoc) {
+  const delay = doc.beat_grid?.onset_delay ?? 0;
+  return doc.notes.map((n: ProjectNote) => ({
+    id: n.id,
+    instrument: n.instrument,
+    pitch: n.pitch,
+    start: n.start - delay,
+    end: n.end - delay,
+  }));
+}
 
 export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const rollRef = useRef<PianoRoll | null>(null);
@@ -20,9 +38,13 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [liveNames, setLiveNames] = useState<string[]>([]);
+  const [muted, setMuted] = useState<Set<string>>(new Set());
+  const [solo, setSolo] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [userScrolled, setUserScrolled] = useState(false);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
-  const [, setUserScrolled] = useState(false);
 
   const { transcribe, abort, stop } = useProjectTranscription({
     audio,
@@ -30,27 +52,23 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     progress,
     onBusy: () => setNotice("The server is busy. Trying again shortly."),
     onAccepted: () => setNotice(null),
-    onInstrument: () => {},
+    onInstrument: (name) => setLiveNames((names) => [...names, name]),
   });
 
-  function loadSaved(saved: ProjectDoc) {
-    const roll = rollRef.current!;
-    for (const n of saved.notes) {
-      const note = { pitch: n.pitch, start: n.start, end: n.start, instrument: n.instrument };
-      roll.addNote(note);
-      roll.setNoteEnd(note, n.end);
-      audio.scheduleNote({ ...note, end: n.end });
-    }
-    // Both move the streamed times by the onset delay.
-    roll.setBeatGrid(saved.beat_grid);
-    audio.shiftNotes(-(saved.beat_grid?.onset_delay ?? 0));
-    const last = saved.notes.reduce((end, n) => Math.max(end, n.end), 0);
-    if (last > 0) audio.scheduleStop(last + 0.3);
+  /** Make the roll, playback and metronome show `saved`. */
+  function showProject(saved: ProjectDoc) {
+    const notes = displayNotes(saved);
+    const last = notes.reduce((end, n) => Math.max(end, n.end), 0);
+    rollRef.current?.setNotes(notes);
+    rollRef.current?.setGridLines(saved.beat_grid);
+    audio.replaceNotes(notes, last > 0 ? last + 0.3 : null);
+    audio.setClicks(metronomeClicks(saved.beat_grid, Math.max(audio.duration, last)));
   }
 
   async function run(current: ProjectDoc, file: File) {
     setPhase("transcribing");
     setError(null);
+    setLiveNames([]);
     try {
       await api.saveProject({ ...current, status: "transcribing" });
       const outcome = await transcribe(file);
@@ -68,13 +86,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         notes,
         beat_grid: beatGrid,
       });
-      if (stopped) {
-        // Rebuild from what was kept: the roll still holds unfinished notes.
-        audio.reset();
-        rollRef.current?.clear();
-        audio.loadWav(file).catch(() => {});
-        loadSaved(saved);
-      }
+      showProject(saved);
       setDoc(saved);
       setPhase("ready");
     } catch (e) {
@@ -94,9 +106,11 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         if (cancelled) return;
         fileRef.current = file;
         setDoc(loaded);
-        audio.loadWav(file).catch(() => {});
+        // Awaited: the metronome runs to the end of the audio.
+        await audio.loadWav(file).catch(() => {});
+        if (cancelled) return;
         if (loaded.status === "completed" || loaded.status === "partial") {
-          loadSaved(loaded);
+          showProject(loaded);
           setPhase("ready");
         } else if (takeStartRequest(id)) {
           run(loaded, file);
@@ -112,7 +126,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       abort();
       audio.reset();
     };
-    // `run` and `loadSaved` read refs and props stable for this keyed screen.
+    // `run` and `showProject` read refs and props stable for this keyed screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, audio]);
 
@@ -129,6 +143,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
           transcribing && duration > 0 ? progress.completedFraction() * duration : null,
         );
         roll.render();
+        if (roll.consumeAutoResumed()) setUserScrolled(false);
       }
       if (fillRef.current) {
         const now = performance.now();
@@ -145,20 +160,88 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     return () => cancelAnimationFrame(raf);
   }, [audio, progress]);
 
+  const notes = doc?.notes ?? [];
+  const names = useMemo(
+    () => (notes.length ? [...new Set(notes.map((n) => n.instrument))] : liveNames),
+    [notes, liveNames],
+  );
+
+  // A solo silences everything else. Mutes come back when it ends.
+  useEffect(() => {
+    for (const name of names) {
+      const silent = solo.size > 0 ? !solo.has(name) : muted.has(name);
+      audio.setInstrumentMuted(name, silent);
+      rollRef.current?.setInstrumentMuted(name, silent);
+    }
+  }, [audio, names, muted, solo]);
+
+  const toggle = (set: Set<string>, name: string) => {
+    const next = new Set(set);
+    if (!next.delete(name)) next.add(name);
+    return next;
+  };
+
+  const exportCurrent = useCallback(async () => {
+    if (!doc) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const blob = await exportMidi(doc.notes, doc.beat_grid, NO_OVERRIDES, {
+        ...DEFAULT_CLEANUP,
+        quantize: false,
+        fill_gaps: 0,
+      });
+      saveBlob(blob, `${doc.name}.mid`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  }, [doc]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || (e.target as HTMLElement).closest("input, textarea, select, button")) {
+        return;
+      }
+      e.preventDefault();
+      if (audio.state === "started") audio.pause();
+      else audio.play();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [audio]);
+
   return (
     <div className="flex h-screen flex-col bg-bg">
-      <header className="flex items-center gap-3 px-4 py-3">
-        <a href="#/new" aria-label="Back" className="text-muted hover:text-content">
-          ←
-        </a>
-        <h1 className="truncate text-base font-medium text-content">{doc?.name ?? "Loading"}</h1>
-        {doc?.model && <span className="text-xs text-muted">{doc.model} model</span>}
-        {phase === "idle" && doc && fileRef.current && (
-          <Button className="ml-auto" onClick={() => run(doc, fileRef.current!)}>
-            Transcribe
-          </Button>
-        )}
-      </header>
+      <TopBar
+        title={doc?.name ?? "Loading"}
+        model={doc?.model ?? null}
+        exporting={exporting}
+        onExport={phase === "ready" ? exportCurrent : null}
+      />
+      <Transport
+        audio={audio}
+        grid={doc?.beat_grid ?? null}
+        following={!userScrolled}
+        onFollow={(on) => {
+          setUserScrolled(!on);
+          if (on) rollRef.current?.follow();
+          else rollRef.current?.unfollow();
+        }}
+        onRestart={() => {
+          audio.seek(0);
+          rollRef.current?.follow();
+          setUserScrolled(false);
+        }}
+      />
+
+      {phase === "idle" && doc && fileRef.current && (
+        <div className="flex items-center gap-3 px-4 pb-3 text-sm text-muted">
+          <span>This project has not been transcribed yet.</span>
+          <Button onClick={() => run(doc, fileRef.current!)}>Transcribe</Button>
+        </div>
+      )}
 
       {phase === "transcribing" && (
         <div className="flex items-center gap-3 px-4 pb-3">
@@ -183,8 +266,22 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         </p>
       )}
 
-      <div className="min-h-0 flex-1">
-        <PianoRollCanvas rollRef={rollRef} audio={audio} setUserScrolled={setUserScrolled} />
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <RollToolbar roll={rollRef.current} />
+          <div className="min-h-0 flex-1">
+            <PianoRollCanvas rollRef={rollRef} audio={audio} setUserScrolled={setUserScrolled} />
+          </div>
+        </div>
+        <InstrumentPanel
+          notes={notes}
+          names={names}
+          muted={muted}
+          solo={solo}
+          onMute={(name) => setMuted((m) => toggle(m, name))}
+          onSolo={(name) => setSolo((s) => toggle(s, name))}
+          onHover={(name) => rollRef.current?.setHighlightedInstrument(name)}
+        />
       </div>
     </div>
   );

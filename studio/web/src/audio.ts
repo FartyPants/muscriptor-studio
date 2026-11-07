@@ -1,5 +1,6 @@
 import * as Tone from "tone";
 import { WorkletSynthesizer } from "spessasynth_lib";
+import type { Click } from "./metronome";
 import workletUrl from "spessasynth_lib/dist/spessasynth_processor.min.js?url";
 
 /**
@@ -96,6 +97,10 @@ export class AudioEngine {
   private wavPanner: StereoPannerNode;
   private midiPanner: StereoPannerNode;
   private mutedInstruments = new Set<string>();
+  /** Metronome clicks. Always scheduled, so turning it on takes effect at once. */
+  private clicks: Click[] = [];
+  private metronomeOn = false;
+  private clickLevel = 0.5;
   private mix = 0.75; // 0 = full WAV, 1 = full MIDI
   /** When true: original audio hard-left, synthesis hard-right (mix ignored). */
   private stereo = false;
@@ -312,6 +317,44 @@ export class AudioEngine {
   }
 
   /**
+   * Replace every note, keeping the transport where it is. Anything still to
+   * come plays from the new list. `stopAt` is when playback ends by itself.
+   */
+  replaceNotes(notes: NoteOpts[], stopAt: number | null) {
+    this.allNotes = notes.map((n) => ({ ...n }));
+    this.pendingNotes = [];
+    this.autoStopAt = stopAt;
+    this.seek(Tone.getTransport().seconds);
+  }
+
+  setClicks(clicks: Click[]) {
+    this.clicks = clicks;
+    this.seek(Tone.getTransport().seconds);
+  }
+
+  setMetronome(on: boolean) {
+    this.metronomeOn = on;
+  }
+
+  setMetronomeLevel(level: number) {
+    this.clickLevel = level;
+  }
+
+  private scheduleClick(click: Click) {
+    Tone.getTransport().scheduleOnce((time) => {
+      if (!this.metronomeOn || this.clickLevel <= 0) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.frequency.value = click.accent ? 1600 : 1000;
+      gain.gain.setValueAtTime(this.clickLevel, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+      osc.connect(gain).connect(this.ctx.destination);
+      osc.start(time);
+      osc.stop(time + 0.06);
+    }, click.time);
+  }
+
+  /**
    * Move every note by `seconds`, re-scheduling what hasn't played yet. Used to
    * take out the lag the transcribed onsets carry against the detected beats,
    * once the beat grid arrives at the end of the stream.
@@ -358,6 +401,7 @@ export class AudioEngine {
     if (t.seconds < 0.001) {
       t.cancel();
       for (const n of this.allNotes) this.scheduleNoteRaw(n);
+      for (const c of this.clicks) this.scheduleClick(c);
       if (this.autoStopAt !== null) this.scheduleStopRaw(this.autoStopAt);
     }
     t.start();
@@ -381,6 +425,9 @@ export class AudioEngine {
     t.seconds = target;
     for (const n of this.allNotes) {
       if (n.start >= target) this.scheduleNoteRaw(n);
+    }
+    for (const c of this.clicks) {
+      if (c.time >= target) this.scheduleClick(c);
     }
     if (this.autoStopAt !== null && this.autoStopAt > target) {
       this.scheduleStopRaw(this.autoStopAt);
@@ -410,6 +457,7 @@ export class AudioEngine {
     this.stop();
     this.allNotes = [];
     this.pendingNotes = [];
+    this.clicks = [];
     this.autoStopAt = null;
     this.stopWavSource();
     this.wavBuffer = null;
