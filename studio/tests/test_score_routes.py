@@ -267,3 +267,9 @@ class TestViewTiming:
         )
         bars = [t for t in got["measures"] if t > -0.1][:3]
         assert bars == pytest.approx([0, 1.0, 2.0], abs=0.01)
+
+    def test_without_a_grid_measures_start_with_the_recording(self, client, monkeypatch):
+        # No grid means no beats to measure a delay against, so nothing is shifted.
+        notes = [{**NOTES[0], "start": 0.18 + 0.5 * i, "end": 0.6 + 0.5 * i} for i in range(8)]
+        got = self.view(client, monkeypatch, {"notes": notes})
+        assert got["measures"][:2] == [0, 2]

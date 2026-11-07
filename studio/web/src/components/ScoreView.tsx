@@ -20,6 +20,8 @@ import { Button } from "./ui";
 
 /** After an edit, wait this long for the next one before engraving again. */
 const REFRESH_DELAY_MS = 1500;
+/** The longest the first score waits for the key the transport shows. */
+const KEY_WAIT_MS = 3000;
 /** The playing system sits this far below the top when Follow scrolls to it. */
 const FOLLOW_MARGIN = 48;
 
@@ -185,9 +187,11 @@ export function ScoreView(props: {
 
   // Engrave when shown out of date: at once the first time, after a pause on edits.
   useEffect(() => {
-    if (!visible || !stale || !keyReady) return;
+    if (!visible || !stale) return;
     if (sameSource(inFlight.current, wanted)) return;
-    const wait = engraved && hasScore ? REFRESH_DELAY_MS : 0;
+    // Wait a little for the key, but not for ever: if naming it fails, the
+    // server finds its own.
+    const wait = !keyReady ? KEY_WAIT_MS : engraved && hasScore ? REFRESH_DELAY_MS : 0;
     const timer = setTimeout(() => void engrave(), wait);
     return () => clearTimeout(timer);
     // `engrave` reads the latest inputs through refs.
@@ -277,7 +281,9 @@ export function ScoreView(props: {
               ? "Out of date. Updating after your edits."
               : hasScore
                 ? "Click a measure to play from there."
-                : ""}
+                : notes.length > 0
+                  ? "Finding the key first."
+                  : ""}
         </span>
         <Button
           className="ml-auto"
