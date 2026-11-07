@@ -97,6 +97,21 @@ class TranscribeGuard:
             leave()
 
 
+class StudioFiles(StaticFiles):
+    """Static files, with the page always checked for a newer build.
+
+    Build outputs have hashed names, so they can be cached for good. The page
+    naming them can't: without this header a browser may reuse an old page, and
+    with it the old interface, after an update.
+    """
+
+    def file_response(self, full_path, *args, **kwargs):
+        response = super().file_response(full_path, *args, **kwargs)
+        if str(full_path).endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class ModelChoice(BaseModel):
     size: str
 
@@ -384,7 +399,7 @@ def create_studio_app(
     app.include_router(api)
 
     studio_dir = studio_web or (STUDIO_WEB if STUDIO_WEB.is_dir() else PLACEHOLDER)
-    app.mount("/studio", StaticFiles(directory=studio_dir, html=True), name="studio")
+    app.mount("/studio", StudioFiles(directory=studio_dir, html=True), name="studio")
     if original_web is not None and Path(original_web).is_dir():
         app.mount("/", StaticFiles(directory=original_web, html=True), name="web")
     return app

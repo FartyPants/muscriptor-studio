@@ -87,6 +87,13 @@ def test_both_interfaces_are_served(weights, exporter, site):
     assert c.get("/health").json() == {"status": "ok"}
 
 
+def test_the_page_is_always_checked_for_a_new_build(weights, exporter, site):
+    (site[1] / "app.js").write_text("code")
+    c = client(holder_for(weights, exporter), site)
+    assert c.get("/studio/").headers["cache-control"] == "no-cache"
+    assert "cache-control" not in c.get("/studio/app.js").headers
+
+
 def test_export_works_without_a_model(weights, exporter, site):
     c = client(holder_for(weights, exporter), site)
     r = c.post(
