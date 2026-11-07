@@ -20,11 +20,13 @@ function Group({ children }: { children: ReactNode }) {
 export function Transport(props: {
   audio: AudioEngine;
   grid: BeatGrid | null;
+  /** Estimated from the notes. */
+  keyLabel: string | null;
   following: boolean;
   onFollow: (on: boolean) => void;
   onRestart: () => void;
 }) {
-  const { audio, grid, following, onFollow, onRestart } = props;
+  const { audio, grid, keyLabel, following, onFollow, onRestart } = props;
   const [playing, setPlaying] = useState(false);
   const [metronome, setMetronome] = useState(false);
   const [clickLevel, setClickLevel] = useState(0.5);
@@ -102,11 +104,18 @@ export function Transport(props: {
         </button>
       </Group>
 
-      {grid && (
+      {(grid || keyLabel) && (
         <Group>
-          <span className="px-2 font-mono text-xs text-muted">
-            TEMPO <span className="font-medium text-content">{Math.round(grid.bpm)} BPM</span>
-          </span>
+          {keyLabel && (
+            <span title="Estimated from the notes" className="px-2 font-mono text-xs text-muted">
+              KEY <span className="font-medium text-content">{keyLabel}</span>
+            </span>
+          )}
+          {grid && (
+            <span className="px-2 font-mono text-xs text-muted">
+              TEMPO <span className="font-medium text-content">{Math.round(grid.bpm)} BPM</span>
+            </span>
+          )}
         </Group>
       )}
 

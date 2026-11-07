@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from muscriptor.server import create_app
 from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
+from studio.analysis import analyze
 from studio.instruments import scan_instruments
 from studio.models import (
     ModelBusyError,
@@ -94,6 +95,20 @@ class Onsets(BaseModel):
     onsets: list[float]
 
 
+class AnalysisNote(BaseModel):
+    instrument: str
+    pitch: int
+    start: float
+    end: float
+
+
+class AnalysisRequest(BaseModel):
+    """Notes in streamed time, as a project stores them."""
+
+    notes: list[AnalysisNote]
+    beat_grid: dict[str, Any] | None = None
+
+
 def read_audio(path: Path):
     """Decode `path` the way `/transcribe` does: WAV first, then anything else."""
     with open(path, "rb") as f:
@@ -152,6 +167,16 @@ def create_studio_app(
         except ModelLoadError as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
         return {"active": holder.active}
+
+    @api.post("/analysis")
+    async def analysis(body: AnalysisRequest):
+        """Key and chords for the notes as they stand. Needs no model."""
+        delay = (body.beat_grid or {}).get("onset_delay") or 0.0
+        shown = [
+            n.model_copy(update={"start": n.start - delay, "end": n.end - delay})
+            for n in body.notes
+        ]
+        return await asyncio.to_thread(analyze, shown, body.beat_grid)
 
     @api.post("/projects")
     async def create_project(

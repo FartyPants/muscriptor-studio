@@ -71,12 +71,25 @@ export function EditControls(props: {
   );
 }
 
-export function RollToolbar(props: { roll: PianoRoll | null; children?: ReactNode }) {
-  const { roll, children } = props;
+export function RollToolbar(props: {
+  roll: PianoRoll | null;
+  chords: boolean;
+  onChords: (on: boolean) => void;
+  children?: ReactNode;
+}) {
+  const { roll, chords, onChords, children } = props;
   return (
     <div className="flex min-h-11 items-center gap-1 border-b border-t border-line px-3">
       {children}
       <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={chords}
+          className={clsx(BUTTON, chords && "!text-content")}
+          onClick={() => onChords(!chords)}
+        >
+          Chords
+        </button>
         <button type="button" className={BUTTON} onClick={() => roll?.resetZoom()}>
           Reset zoom
         </button>

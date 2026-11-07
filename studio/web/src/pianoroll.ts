@@ -1,9 +1,12 @@
-import { INSTRUMENT_ORDER } from "./audio";
+import { instrumentColor } from "./colors";
 
 /** A note's position while a drag previews it. */
 export type RollOverride = { pitch: number; start: number; end: number };
 
 export type Marquee = { x0: number; y0: number; x1: number; y1: number };
+
+/** A named chord, in display time. */
+export type ChordSpan = { start: number; end: number; root: string; quality: string; label: string };
 
 export interface RollNote {
   /** Project note id; unset for notes still streaming in. */
@@ -113,6 +116,8 @@ const BAR_STRIP = "rgba(255, 255, 255, 0.01)";
 const MIN_BEAT_PX = 12;
 /** Height of the time ruler across the top of the note area. */
 export const RULER_H = 26;
+/** Height of the chord bar, under the ruler. */
+const CHORD_H = 24;
 
 /** Reveal duration in ms — how long a note takes to grow to full width. */
 const REVEAL_MS = 280;
@@ -212,38 +217,14 @@ function isBlackKey(pitch: number): boolean {
   return n === 1 || n === 3 || n === 6 || n === 8 || n === 10;
 }
 
-/**
- * Golden-angle hue step (≈137.5°). Stepping the hue by this each time keeps any
- * prefix of the generated sequence as evenly spaced around the wheel as
- * possible, so the palette stays well-separated however many instruments appear.
- */
-const GOLDEN_ANGLE = 137.508;
-
-/**
- * Color index per instrument: its position in the canonical instrument list,
- * so every instrument keeps the same color across tracks, uploads, and
- * reloads. Names outside the list (e.g. "program_47") get the next free
- * indices in first-seen order.
- */
-const instrumentIndex = new Map<string, number>(
-  INSTRUMENT_ORDER.map((name, i) => [name, i]),
-);
-
-export function instrumentColor(name: string): string {
-  let idx = instrumentIndex.get(name);
-  if (idx === undefined) {
-    idx = instrumentIndex.size;
-    instrumentIndex.set(name, idx);
-  }
-  const hue = (idx * GOLDEN_ANGLE) % 360;
-  return `hsl(${hue}, 70%, 55%)`;
-}
+export { instrumentColor };
 
 /**
  * The canvas can't use Tailwind classes, so the skin exposes its palette as
  * CSS custom properties on :root (see style.css); read once and cache.
  */
 let rollPalette: {
+  bodyFont: string;
   stripe: string;
   grid: string;
   playhead: string;
@@ -263,6 +244,7 @@ function palette() {
       keyBlack: v("--roll-key-black"),
       keyWhite: v("--roll-key-white"),
       labelFont: `10px ${v("--font-sans")}`,
+      bodyFont: v("--font-sans"),
     };
   }
   return rollPalette;
@@ -324,6 +306,8 @@ export class PianoRoll {
   private selectedNotes: Set<string> = new Set();
   private overrides: Map<string, RollOverride> | null = null;
   private marquee: Marquee | null = null;
+  private chords: ChordSpan[] = [];
+  private showChords = true;
   private lastRowH = 1;
   private lastPitchTop = DEFAULT_PITCH_TOP;
 
@@ -368,6 +352,19 @@ export class PianoRoll {
         }
       }
     }
+  }
+
+  setChords(chords: ChordSpan[]) {
+    this.chords = chords;
+  }
+
+  setChordsVisible(visible: boolean) {
+    this.showChords = visible;
+  }
+
+  /** Height of the ruler and chord bar across the top. */
+  get headerHeight(): number {
+    return RULER_H + (this.showChords && this.chords.length > 0 ? CHORD_H : 0);
   }
 
   setEditState(active: string | null, selected: Set<string>) {
@@ -417,9 +414,9 @@ export class PianoRoll {
     const low = Math.min(...pitches);
     const high = Math.max(...pitches);
     this._pxPerSec = Math.max(1, (rect.width - KEY_WIDTH) / Math.max(1, end));
-    this.pxPerPitch = (rect.height - RULER_H) / (high - low + 3);
+    this.pxPerPitch = (rect.height - this.headerHeight) / (high - low + 3);
     // One row above the highest note, plus room for the ruler.
-    this.pitchTop = high + 2 + RULER_H / this.pxPerPitch;
+    this.pitchTop = high + 2 + this.headerHeight / this.pxPerPitch;
     this.userOffset = 0;
     this.noteGesture();
   }
@@ -918,6 +915,7 @@ export class PianoRoll {
     }
 
     this.drawRuler(ctx, contentW, offsetSec, pxPerSec);
+    if (this.headerHeight > RULER_H) this.drawChords(ctx, contentW, offsetSec, pxPerSec);
 
     // Playhead
     const px = KEY_WIDTH + (this.playhead - offsetSec) * pxPerSec;
@@ -963,6 +961,39 @@ export class PianoRoll {
     ctx.moveTo(KEY_WIDTH, RULER_H + 0.5);
     ctx.lineTo(KEY_WIDTH + contentW, RULER_H + 0.5);
     ctx.stroke();
+  }
+
+  /** The chord bar: one block per chord, the one at the playhead lit up. */
+  private drawChords(
+    ctx: CanvasRenderingContext2D,
+    contentW: number,
+    offsetSec: number,
+    pxPerSec: number,
+  ) {
+    const right = KEY_WIDTH + contentW;
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(KEY_WIDTH, RULER_H, contentW, CHORD_H);
+    ctx.font = `600 12px ${palette().bodyFont}`;
+    ctx.textBaseline = "middle";
+    const y = RULER_H + CHORD_H / 2;
+    for (const chord of this.chords) {
+      const from = KEY_WIDTH + (chord.start - offsetSec) * pxPerSec;
+      const to = KEY_WIDTH + (chord.end - offsetSec) * pxPerSec;
+      if (to < KEY_WIDTH) continue;
+      if (from > right) break;
+      const current = this.playhead >= chord.start && this.playhead < chord.end;
+      ctx.fillStyle = current ? "rgba(255, 255, 255, 0.2)" : "rgba(255, 255, 255, 0.07)";
+      ctx.fillRect(from + 1, RULER_H + 2, Math.max(1, to - from - 2), CHORD_H - 4);
+      // Keep the name on screen when its chord began to the left of the view.
+      const textX = Math.max(from, KEY_WIDTH) + 6;
+      const room = to - textX - 4;
+      const short = chord.root + chord.quality;
+      const text = [chord.label, short, chord.root].find((t) => ctx.measureText(t).width <= room);
+      if (text) {
+        ctx.fillStyle = current ? "#ffffff" : "#cfcfcf";
+        ctx.fillText(text, textX, y);
+      }
+    }
   }
 
   /** Draw the piano-key strip down the left edge, aligned to the pitch axis. */

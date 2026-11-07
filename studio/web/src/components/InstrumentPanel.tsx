@@ -69,7 +69,9 @@ export function InstrumentPanel(props: {
                 <div className={clsx("truncate text-[13px] capitalize", silent ? "text-muted" : "text-content")}>
                   {label(name)}
                 </div>
-                <div className="text-[11px] text-muted">{count.toLocaleString()} notes</div>
+                {count > 0 && (
+                  <div className="text-[11px] text-muted">{count.toLocaleString()} notes</div>
+                )}
               </div>
               <button
                 type="button"

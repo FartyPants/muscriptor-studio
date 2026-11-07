@@ -5,7 +5,7 @@ import type { BeatGrid, PianoRoll } from "../pianoroll";
 import { NoteStore } from "./noteStore";
 import { RollEditor } from "./rollEditor";
 
-vi.mock("../pianoroll", () => ({ PITCH_MIN: 21, PITCH_MAX: 108, RULER_H: 26 }));
+vi.mock("../pianoroll", () => ({ PITCH_MIN: 21, PITCH_MAX: 108 }));
 
 const DELAY = 0.02;
 const grid: BeatGrid = {
@@ -35,6 +35,7 @@ function setup(notes: ProjectNote[], g: BeatGrid | null = grid) {
   const store = new NoteStore(notes);
   const roll = {
     view: () => view,
+    headerHeight: 26,
     setEditState: vi.fn(),
     setOverrides: vi.fn(),
     setMarquee: vi.fn(),

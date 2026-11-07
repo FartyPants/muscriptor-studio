@@ -1,6 +1,6 @@
 import { errorDetail } from "./export";
 import { readEvents } from "./sse";
-import type { BeatGrid } from "./pianoroll";
+import type { BeatGrid, ChordSpan } from "./pianoroll";
 
 export type ModelSize = "large" | "medium";
 
@@ -59,6 +59,11 @@ const send = (doc: unknown, method: string): RequestInit => ({
   body: JSON.stringify(doc),
 });
 
+export type Analysis = {
+  key: { label: string; mode: string; confidence: number } | null;
+  chords: ChordSpan[];
+};
+
 export const api = {
   models: () => fetch("/studio/api/models").then(json<ModelsState>),
 
@@ -81,6 +86,9 @@ export const api = {
     fetch(`/studio/api/projects/${id}/beat-grid`, send({ onsets }, "POST"))
       .then(json<{ beat_grid: BeatGrid | null }>)
       .then((r) => r.beat_grid),
+
+  analysis: (notes: ProjectNote[], beat_grid: BeatGrid | null) =>
+    fetch("/studio/api/analysis", send({ notes, beat_grid }, "POST")).then(json<Analysis>),
 
   /** Load the model `doc` was set up for, if another one is in memory. */
   async ensureModel(doc: ProjectDoc) {

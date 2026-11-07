@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type ProjectDoc, type ProjectNote } from "../api";
+import { api, type Analysis, type ProjectDoc, type ProjectNote } from "../api";
 import type { AudioEngine } from "../audio";
+import { instrumentColor, resetInstrumentColors } from "../colors";
 import { Button } from "../components/Button";
 import { InstrumentPanel } from "../components/InstrumentPanel";
 import { InstrumentStep } from "../components/InstrumentStep";
@@ -19,6 +20,18 @@ import type { BeatGrid, PianoRoll } from "../pianoroll";
 import { formatClock, ProgressEstimator } from "../progress";
 
 type Phase = "loading" | "idle" | "transcribing" | "ready";
+
+const CHORDS_KEY = "studio.showChords";
+/** After an edit, wait this long for the next one before renaming chords. */
+const ANALYSIS_DELAY_MS = 600;
+
+function loadShowChords(): boolean {
+  try {
+    return localStorage.getItem(CHORDS_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
 
 /** Stored notes, moved onto the beats as the roll and audio show them. */
 function displayNotes(stored: ProjectNote[], grid: BeatGrid | null) {
@@ -49,6 +62,10 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const [exporting, setExporting] = useState(false);
   const [autoDetect, setAutoDetect] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [showChords, setShowChords] = useState(loadShowChords);
+  const analysisTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisRun = useRef(0);
   const [userScrolled, setUserScrolled] = useState(false);
   const storeRef = useRef<NoteStore | null>(null);
   const editorRef = useRef<RollEditor | null>(null);
@@ -86,8 +103,27 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     setNotes(store.notes);
   }
 
+  /** Name the key and chords of the notes as they stand, once edits pause. */
+  function scheduleAnalysis(store: NoteStore, grid: BeatGrid | null, wait: number) {
+    if (analysisTimer.current !== null) clearTimeout(analysisTimer.current);
+    analysisTimer.current = setTimeout(async () => {
+      analysisTimer.current = null;
+      const run = ++analysisRun.current;
+      try {
+        const result = await api.analysis(store.notes, grid);
+        if (run !== analysisRun.current || !mounted.current) return;
+        setAnalysis(result);
+        rollRef.current?.setChords(result.chords);
+      } catch {
+        // Names are a help, not the work: keep showing the last ones.
+      }
+    }, wait);
+  }
+
   /** Start editing `saved`: one store, followed by the roll and playback. */
   function showProject(saved: ProjectDoc) {
+    // Earliest first, as the instruments arrive during a live transcription.
+    [...saved.notes].sort((a, b) => a.start - b.start).forEach((n) => instrumentColor(n.instrument));
     const store = new NoteStore(saved.notes);
     storeRef.current = store;
     rollRef.current?.setGridLines(saved.beat_grid);
@@ -107,7 +143,9 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       syncNotes(store, saved.beat_grid);
       editor.rebuild();
       saver.changed();
+      scheduleAnalysis(store, saved.beat_grid, ANALYSIS_DELAY_MS);
     });
+    scheduleAnalysis(store, saved.beat_grid, 0);
   }
 
   async function run(project: ProjectDoc, file: File, hints: string[]) {
@@ -161,6 +199,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   useEffect(() => {
     let cancelled = false;
     mounted.current = true;
+    resetInstrumentColors();
     audio.reset();
     rollRef.current?.clear();
     (async () => {
@@ -187,6 +226,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     return () => {
       cancelled = true;
       mounted.current = false;
+      if (analysisTimer.current !== null) clearTimeout(analysisTimer.current);
       abort();
       audio.reset();
       saverRef.current?.close();
@@ -305,6 +345,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       <Transport
         audio={audio}
         grid={doc?.beat_grid ?? null}
+        keyLabel={analysis?.key?.label ?? null}
         following={!userScrolled}
         onFollow={(on) => {
           setUserScrolled(!on);
@@ -365,7 +406,19 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <RollToolbar roll={rollRef.current}>
+          <RollToolbar
+            roll={rollRef.current}
+            chords={showChords}
+            onChords={(on) => {
+              setShowChords(on);
+              rollRef.current?.setChordsVisible(on);
+              try {
+                localStorage.setItem(CHORDS_KEY, on ? "on" : "off");
+              } catch {
+                // A remembered preference is a convenience.
+              }
+            }}
+          >
             {phase === "ready" && (
               <EditControls
                 editing={editing}
@@ -395,6 +448,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
               rollRef={rollRef}
               editorRef={editorRef}
               audio={audio}
+              showChords={showChords}
               setUserScrolled={setUserScrolled}
             />
           </div>

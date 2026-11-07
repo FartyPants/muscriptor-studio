@@ -1,7 +1,7 @@
 import type { ProjectNote } from "../api";
 import type { AudioEngine } from "../audio";
 import type { BeatGrid, PianoRoll, RollOverride } from "../pianoroll";
-import { PITCH_MAX, PITCH_MIN, RULER_H } from "../pianoroll";
+import { PITCH_MAX, PITCH_MIN } from "../pianoroll";
 import {
   clickSelection,
   describeSelection,
@@ -119,7 +119,7 @@ export class RollEditor {
 
   /** Whether this press belongs to the editor rather than the playhead. */
   claims(y: number): boolean {
-    return this.enabled && y >= RULER_H;
+    return this.enabled && y >= this.roll.headerHeight;
   }
 
   cursorAt(x: number, y: number): string {

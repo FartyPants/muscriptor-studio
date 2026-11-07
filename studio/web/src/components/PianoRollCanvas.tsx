@@ -7,14 +7,16 @@ export function PianoRollCanvas(props: {
   rollRef: RefObject<PianoRoll | null>;
   editorRef: RefObject<RollEditor | null>;
   audio: AudioEngine;
+  showChords: boolean;
   setUserScrolled: Dispatch<SetStateAction<boolean>>;
 }) {
-  const { rollRef, editorRef, audio, setUserScrolled } = props;
+  const { rollRef, editorRef, audio, showChords, setUserScrolled } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
     const roll = new PianoRoll(canvas);
+    roll.setChordsVisible(showChords);
     rollRef.current = roll;
 
     // Wheel bindings follow the DAW convention (Ableton / FL / Reaper):
@@ -206,6 +208,8 @@ export function PianoRollCanvas(props: {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
+    // `showChords` only seeds the roll; later changes go through setChordsVisible.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audio, rollRef, editorRef, setUserScrolled]);
 
   return (
