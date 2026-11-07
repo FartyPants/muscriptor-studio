@@ -7,6 +7,7 @@ import io
 import json
 import re
 import wave
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -26,6 +27,7 @@ from studio.models import (
     ModelMissingError,
     SwitchableModel,
 )
+from studio.tagger import safe_tag
 from studio.projects import DATA_DIR, ProjectNotFoundError, ProjectStore
 
 HERE = Path(__file__).resolve().parent
@@ -138,6 +140,7 @@ def create_studio_app(
     studio_web: Path | None = None,
     data_dir: Path = DATA_DIR,
     autoload: str | None = None,
+    tagger: Callable[[Any, int], list[dict[str, Any]]] | None = safe_tag,
 ) -> FastAPI:
     # web_dir=None: upstream mounts "/" last, which would swallow anything
     # added after it. It is mounted below instead, once Studio's routes exist.
@@ -238,7 +241,7 @@ def create_studio_app(
         def events():
             try:
                 wav, sample_rate = read_audio(path)
-                for event in scan_instruments(holder, wav, sample_rate):
+                for event in scan_instruments(holder, wav, sample_rate, tagger):
                     yield f"data: {json.dumps(event)}\n\n"
             except Exception as e:
                 # Headers are sent by now, so the stream has to say it failed.

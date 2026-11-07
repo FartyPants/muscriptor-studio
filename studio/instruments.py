@@ -9,7 +9,7 @@ off it can't appear.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import numpy as np
@@ -45,8 +45,18 @@ def pick_windows(
     return [(int(starts[i]), int(starts[i]) + size) for i in chosen]
 
 
-def scan_instruments(model: Any, wav: Any, sample_rate: int) -> Iterator[dict[str, Any]]:
-    """Yield `progress` events, then one `instruments` event, most notes first."""
+def scan_instruments(
+    model: Any,
+    wav: Any,
+    sample_rate: int,
+    tagger: Callable[[Any, int], list[dict[str, Any]]] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield `heard`, if there is a tagger, then `progress`, then `instruments`.
+
+    The tagger goes first because it takes seconds and the scan takes a minute.
+    """
+    if tagger is not None:
+        yield {"type": "heard", "suggestions": tagger(wav, sample_rate)}
     windows = pick_windows(wav, sample_rate)
     found: Counter[str] = Counter()
     yield {"type": "progress", "completed": 0, "total": len(windows)}

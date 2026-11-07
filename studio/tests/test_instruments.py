@@ -9,6 +9,7 @@ from muscriptor.events import NoteEndEvent, NoteStartEvent, ProgressEvent
 from studio.app import create_studio_app
 from studio.instruments import pick_windows, scan_instruments
 from studio.models import SwitchableModel
+from studio.tagger import LABELS, safe_tag, suggestions_from
 from studio.tests.test_app import wav_bytes
 
 RATE = 100
@@ -40,6 +41,52 @@ class Scripted:
 
 def scan(model, wav=None):
     return list(scan_instruments(model, tone(100) if wav is None else wav, RATE))
+
+
+class TestTaggerFirst:
+    def test_suggestions_arrive_before_the_scan(self):
+        heard = [{"label": "Saxophone", "instruments": ["tenor_sax"], "score": 0.8}]
+        model = Scripted([["violin", "violin"]])
+        events = list(scan_instruments(model, tone(100), RATE, lambda w, r: heard))
+        assert events[0] == {"type": "heard", "suggestions": heard}
+        assert events[1]["type"] == "progress"
+        assert events[-1]["type"] == "instruments"
+
+    def test_no_tagger_means_no_suggestions_event(self):
+        assert "heard" not in [e["type"] for e in scan(Scripted([]))]
+
+
+class TestSuggestions:
+    def test_keeps_strong_labels_strongest_first(self):
+        got = suggestions_from({"Saxophone": 0.84, "Trumpet": 0.5, "Guitar": 0.9, "Flute": 0.1})
+        assert [s["label"] for s in got] == ["Saxophone", "Trumpet"]
+
+    def test_saxophone_offers_each_type(self):
+        got = suggestions_from({"Saxophone": 0.84})
+        assert got[0]["instruments"] == ["tenor_sax", "soprano_and_alto_sax", "baritone_sax"]
+
+    def test_a_piano_is_not_also_an_electric_piano(self):
+        assert [s["label"] for s in suggestions_from({"Piano": 0.78, "Electric piano": 0.61})] == ["Piano"]
+        assert [s["label"] for s in suggestions_from({"Piano": 0.4, "Electric piano": 0.7})] == [
+            "Electric piano"
+        ]
+
+    def test_organ_labels_merge(self):
+        got = suggestions_from({"Organ": 0.4, "Hammond organ": 0.6})
+        assert [(s["label"], s["score"]) for s in got] == [("Organ", 0.6)]
+
+    def test_every_suggestion_names_real_instruments(self):
+        from muscriptor.tokenizer.mt3 import MT3_FULL_PLUS_GROUP_NAMES
+
+        for _, instruments in LABELS.values():
+            assert set(instruments) <= set(MT3_FULL_PLUS_GROUP_NAMES)
+
+    def test_a_broken_tagger_gives_no_suggestions(self, monkeypatch):
+        def boom(wav, rate):
+            raise OSError("model missing")
+
+        monkeypatch.setattr("studio.tagger.tag_instruments", boom)
+        assert safe_tag(tone(1), RATE) == []
 
 
 class TestPickWindows:
@@ -119,7 +166,7 @@ def app_for(weights, tmp_path, model):
     holder = SwitchableModel(
         loader=lambda s, d: model, free=lambda: None, exporter=object(), weights=weights
     )
-    return holder, TestClient(create_studio_app(holder, data_dir=tmp_path))
+    return holder, TestClient(create_studio_app(holder, data_dir=tmp_path, tagger=None))
 
 
 def project(c):
