@@ -23,6 +23,7 @@
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",
     "lucide-react": "^1.70.0",
+    "opensheetmusicdisplay": "2.2.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "spessasynth_core": "4.3.12",
