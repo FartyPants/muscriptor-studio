@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import wave
 from pathlib import Path
 from typing import Annotated, Any
 
+import numpy as np
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from muscriptor.server import create_app
+from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
 from studio.models import (
     ModelBusyError,
     ModelLoadError,
@@ -71,6 +75,33 @@ class TranscribeGuard:
 
 class ModelChoice(BaseModel):
     size: str
+
+
+class Onsets(BaseModel):
+    onsets: list[float]
+
+
+def read_audio(path: Path):
+    """Decode `path` the way `/transcribe` does: WAV first, then anything else."""
+    with open(path, "rb") as f:
+        data = f.read()
+    try:
+        return _read_wav_file(io.BytesIO(data))
+    except (wave.Error, EOFError):
+        return _read_non_wav_file(io.BytesIO(data))
+
+
+def grid_to_json(grid: Any) -> dict[str, Any]:
+    """The fields `/transcribe` sends as `beat_grid`."""
+    return {
+        "bpm": grid.bpm,
+        "beats_per_bar": grid.beats_per_bar,
+        "first_downbeat": grid.first_downbeat,
+        "onset_delay": grid.onset_delay,
+        "beat_subdivision": grid.beat_subdivision,
+        "steady": grid.steady,
+        "beats": None if grid.beats is None else [round(float(b), 3) for b in np.asarray(grid.beats)],
+    }
 
 
 def create_studio_app(
@@ -137,6 +168,26 @@ def create_studio_app(
         except ProjectNotFoundError as e:
             raise HTTPException(status_code=404, detail="no such project") from e
         return FileResponse(path, media_type=media_type)
+
+    @api.post("/projects/{project_id}/beat-grid")
+    async def beat_grid(project_id: str, body: Onsets):
+        """The grid for a transcription stopped early.
+
+        It normally arrives at the end of `/transcribe`, so a stopped run never
+        gets one. `onsets` are the kept notes' streamed start times.
+        """
+
+        def detect():
+            path, _ = store.audio_path(project_id)
+            grid = holder.detect_beat_grid_for(read_audio(path), "best-effort")
+            if grid is None:
+                return None
+            return grid_to_json(grid.with_onset_delay(body.onsets) if body.onsets else grid)
+
+        try:
+            return {"beat_grid": await asyncio.to_thread(detect)}
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
 
     # Last, so a bad API path is a 404 rather than the page from the /studio mount.
     @api.api_route("/{rest:path}", methods=["GET", "POST", "PUT", "DELETE"])

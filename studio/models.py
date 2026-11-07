@@ -187,7 +187,8 @@ class SwitchableModel:
                 self._runs -= 1
 
     def detect_beat_grid_for(self, *args: Any, **kwargs: Any) -> Any:
-        return self._current().detect_beat_grid_for(*args, **kwargs)
+        # Beat tracking needs no transcription weights.
+        return self._exporter.detect_beat_grid_for(*args, **kwargs)
 
     def events_to_midi_bytes(self, *args: Any, **kwargs: Any) -> bytes:
         return self._exporter.events_to_midi_bytes(*args, **kwargs)

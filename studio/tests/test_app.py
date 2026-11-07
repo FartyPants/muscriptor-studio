@@ -4,12 +4,14 @@ import time
 import wave
 
 import httpx
+import numpy as np
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from muscriptor.events import NoteStartEvent
+from muscriptor.utils.beats import BeatGrid
 from studio.app import TranscribeGuard, create_studio_app
 from studio.models import SwitchableModel, make_exporter
 
@@ -169,3 +171,46 @@ def test_events_stream_live_and_busy_clears(weights, exporter, site):
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+class GridExporter:
+    """Stands in for the weightless exporter's beat tracking."""
+
+    def __init__(self, grid):
+        self.grid = grid
+        self.seen = None
+
+    def detect_beat_grid_for(self, audio, mode):
+        self.seen = (audio, mode)
+        return self.grid
+
+
+def test_beat_grid_for_a_stopped_transcription(weights, site, tmp_path):
+    grid = BeatGrid(bpm=120.0, beats_per_bar=4, first_downbeat=0.5, beats=np.arange(0.5, 60, 0.5))
+    exporter = GridExporter(grid)
+    holder = SwitchableModel(
+        loader=lambda s, d: None, free=lambda: None, exporter=exporter, weights=weights
+    )
+    c = TestClient(create_studio_app(holder, site[0], site[1], data_dir=tmp_path))
+    pid = c.post("/studio/api/projects", files={"file": ("a.wav", wav_bytes())}).json()["id"]
+
+    onsets = [0.5 + 0.03 + 0.5 * i for i in range(100)]
+    got = c.post(f"/studio/api/projects/{pid}/beat-grid", json={"onsets": onsets}).json()["beat_grid"]
+
+    assert exporter.seen[1] == "best-effort"
+    assert got["bpm"] == 120.0
+    assert got["beats_per_bar"] == 4
+    assert got["onset_delay"] == pytest.approx(0.03, abs=0.01)
+    assert len(got["beats"]) == 119
+
+
+def test_beat_grid_is_null_when_none_is_found(weights, site, tmp_path):
+    holder = SwitchableModel(
+        loader=lambda s, d: None, free=lambda: None, exporter=GridExporter(None), weights=weights
+    )
+    c = TestClient(create_studio_app(holder, site[0], site[1], data_dir=tmp_path))
+    pid = c.post("/studio/api/projects", files={"file": ("a.wav", wav_bytes())}).json()["id"]
+    r = c.post(f"/studio/api/projects/{pid}/beat-grid", json={"onsets": []})
+    assert r.json() == {"beat_grid": None}
+    missing = c.post(f"/studio/api/projects/{'0' * 32}/beat-grid", json={"onsets": []})
+    assert missing.status_code == 404
