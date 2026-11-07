@@ -14,18 +14,6 @@ type StreamedEvent =
 /** Per tab, so the server treats a resubmit here as replacing the last run. */
 const CLIENT_ID = crypto.randomUUID();
 
-/** Projects the new-transcription screen wants started when they open. */
-const pendingStarts = new Set<string>();
-
-export function requestStart(id: string) {
-  pendingStarts.add(id);
-}
-
-/** Whether `id` is waiting to start. Reports each request once. */
-export function takeStartRequest(id: string): boolean {
-  return pendingStarts.delete(id);
-}
-
 export type TranscriptionOutcome = {
   notes: ProjectNote[];
   beatGrid: BeatGrid | null;

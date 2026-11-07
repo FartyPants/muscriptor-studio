@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { api, type ModelSize, type ModelsState } from "../api";
 import { Button } from "../components/Button";
 import { ModelPicker } from "../components/ModelPicker";
-import { requestStart } from "../hooks/useProjectTranscription";
 
 export function NewTranscription() {
   const [models, setModels] = useState<ModelsState | null>(null);
@@ -26,13 +25,8 @@ export function NewTranscription() {
     if (!file) return;
     setError(null);
     try {
-      if (models?.active !== size) {
-        setStatus(`Loading the ${size} model. This can take a minute.`);
-        await api.chooseModel(size);
-      }
       setStatus("Uploading");
       const doc = await api.createProject(file, size);
-      requestStart(doc.id);
       window.location.hash = `#/p/${doc.id}`;
     } catch (e) {
       setStatus(null);

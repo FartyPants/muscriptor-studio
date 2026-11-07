@@ -14,7 +14,7 @@ import { Autosaver, type SaveState } from "../editor/autosave";
 import { NoteStore } from "../editor/noteStore";
 import { RollEditor } from "../editor/rollEditor";
 import { DEFAULT_CLEANUP, exportMidi, NO_OVERRIDES, saveBlob } from "../export";
-import { takeStartRequest, useProjectTranscription } from "../hooks/useProjectTranscription";
+import { useProjectTranscription } from "../hooks/useProjectTranscription";
 import { metronomeClicks } from "../metronome";
 import type { BeatGrid, PianoRoll } from "../pianoroll";
 import { formatClock, ProgressEstimator } from "../progress";
@@ -60,7 +60,6 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [solo, setSolo] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
-  const [autoDetect, setAutoDetect] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [showChords, setShowChords] = useState(loadShowChords);
@@ -156,7 +155,10 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     setError(null);
     setLiveNames([]);
     try {
-      await api.ensureModel(current);
+      await api.ensureModel(current, () =>
+        setNotice(`Loading the ${current.model} model. This can take a minute.`),
+      );
+      setNotice(null);
       await api.saveProject({ ...current, status: "transcribing" });
       const outcome = await transcribe(file, hints);
       if (!outcome) {
@@ -216,7 +218,6 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
           showProject(loaded);
           setPhase("ready");
         } else {
-          setAutoDetect(takeStartRequest(id));
           setPhase("idle");
         }
       } catch (e) {
@@ -362,7 +363,6 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       {phase === "idle" && doc && fileRef.current && (
         <InstrumentStep
           doc={doc}
-          autoDetect={autoDetect}
           onHints={(hints) => {
             const next = { ...doc, hints };
             setDoc(next);

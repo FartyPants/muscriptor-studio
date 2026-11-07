@@ -91,9 +91,12 @@ export const api = {
     fetch("/studio/api/analysis", send({ notes, beat_grid }, "POST")).then(json<Analysis>),
 
   /** Load the model `doc` was set up for, if another one is in memory. */
-  async ensureModel(doc: ProjectDoc) {
+  async ensureModel(doc: ProjectDoc, onLoading?: () => void) {
     const state = await api.models();
-    if (doc.model && state.active !== doc.model) await api.chooseModel(doc.model);
+    if (doc.model && state.active !== doc.model) {
+      onLoading?.();
+      await api.chooseModel(doc.model);
+    }
   },
 
   /** Suggested instrument names, most notes first. */
@@ -101,8 +104,9 @@ export const api = {
     doc: ProjectDoc,
     signal: AbortSignal,
     onProgress: (done: number, total: number) => void,
+    onLoading: () => void,
   ): Promise<string[]> {
-    await api.ensureModel(doc);
+    await api.ensureModel(doc, onLoading);
     const resp = await fetch(`/studio/api/projects/${doc.id}/detect-instruments`, {
       method: "POST",
       signal,

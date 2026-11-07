@@ -4,20 +4,19 @@ import { Button } from "./Button";
 import { ConditioningPanel } from "./ConditioningPanel";
 
 /**
- * The step before transcribing: suggest instruments, let the user correct them.
- * A list is a hard limit on the transcription, so it must be easy to change, and
- * possible to leave the model free.
+ * The step before transcribing: the user lists the instruments, or asks for a
+ * suggestion. Detection takes a while, so it only runs on request. A list is a
+ * hard limit on the transcription, so leaving the model free stays one click away.
  */
 export function InstrumentStep(props: {
   doc: ProjectDoc;
-  /** Start detecting as soon as this appears. */
-  autoDetect: boolean;
   onHints: (hints: string[]) => void;
   onStart: (hints: string[]) => void;
 }) {
-  const { doc, autoDetect, onHints, onStart } = props;
+  const { doc, onHints, onStart } = props;
   const [selected, setSelected] = useState<Set<string>>(() => new Set(doc.hints ?? []));
   const [detecting, setDetecting] = useState(false);
+  const [activity, setActivity] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const fill = useRef<HTMLDivElement>(null);
   const running = useRef<AbortController | null>(null);
@@ -26,12 +25,19 @@ export function InstrumentStep(props: {
     const controller = new AbortController();
     running.current = controller;
     setDetecting(true);
+    setActivity("Listening for instruments");
     setMessage(null);
     if (fill.current) fill.current.style.width = "0";
     try {
-      const names = await api.detectInstruments(doc, controller.signal, (done, total) => {
-        if (fill.current) fill.current.style.width = `${(done / total) * 100}%`;
-      });
+      const names = await api.detectInstruments(
+        doc,
+        controller.signal,
+        (done, total) => {
+          setActivity("Listening for instruments");
+          if (fill.current) fill.current.style.width = `${(done / total) * 100}%`;
+        },
+        () => setActivity(`Loading the ${doc.model} model`),
+      );
       setSelected(new Set(names));
       onHints(names);
       if (names.length === 0) {
@@ -48,12 +54,7 @@ export function InstrumentStep(props: {
     }
   }
 
-  useEffect(() => {
-    if (autoDetect) void detect();
-    return () => running.current?.abort();
-    // Runs once: `autoDetect` is read when the step opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => () => running.current?.abort(), []);
 
   const change = (next: Set<string>) => {
     setSelected(next);
@@ -67,7 +68,7 @@ export function InstrumentStep(props: {
           <div className="h-1 flex-1 overflow-hidden rounded bg-surface-2">
             <div ref={fill} className="h-full bg-white" style={{ width: 0 }} />
           </div>
-          <span className="text-xs text-muted">Listening for instruments</span>
+          <span className="text-xs text-muted">{activity}</span>
           <Button onClick={() => running.current?.abort()}>Skip</Button>
         </div>
       )}
