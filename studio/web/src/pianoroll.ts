@@ -5,6 +5,23 @@ export type RollOverride = { pitch: number; start: number; end: number };
 
 export type Marquee = { x0: number; y0: number; x1: number; y1: number };
 
+/** What the roll draws. All on by default, except pitch lines. */
+export type GridDisplay = {
+  secondMarkers: boolean;
+  pitchLanes: boolean;
+  pitchLines: boolean;
+  keyboard: boolean;
+  chords: boolean;
+};
+
+export const DEFAULT_DISPLAY: GridDisplay = {
+  secondMarkers: true,
+  pitchLanes: true,
+  pitchLines: false,
+  keyboard: true,
+  chords: true,
+};
+
 /** A named chord, in display time. */
 export type ChordSpan = { start: number; end: number; root: string; quality: string; label: string };
 
@@ -307,7 +324,8 @@ export class PianoRoll {
   private overrides: Map<string, RollOverride> | null = null;
   private marquee: Marquee | null = null;
   private chords: ChordSpan[] = [];
-  private showChords = true;
+  private display: GridDisplay = DEFAULT_DISPLAY;
+  private range: { start: number; end: number } | null = null;
   private lastRowH = 1;
   private lastPitchTop = DEFAULT_PITCH_TOP;
 
@@ -358,13 +376,18 @@ export class PianoRoll {
     this.chords = chords;
   }
 
-  setChordsVisible(visible: boolean) {
-    this.showChords = visible;
+  setDisplay(display: GridDisplay) {
+    this.display = display;
+  }
+
+  /** The time span chosen on the ruler, or null. */
+  setRange(range: { start: number; end: number } | null) {
+    this.range = range;
   }
 
   /** Height of the ruler and chord bar across the top. */
   get headerHeight(): number {
-    return RULER_H + (this.showChords && this.chords.length > 0 ? CHORD_H : 0);
+    return RULER_H + (this.display.chords && this.chords.length > 0 ? CHORD_H : 0);
   }
 
   setEditState(active: string | null, selected: Set<string>) {
@@ -801,12 +824,25 @@ export class PianoRoll {
 
     // Pitch grid: darker rows under the black keys, so each octave's shape is
     // readable at a glance (the keyboard's own pattern, mirrored into the notes).
-    ctx.fillStyle = palette().stripe;
-    for (let p = PITCH_MIN; p <= PITCH_MAX; p++) {
-      if (isBlackKey(p)) {
-        const y = (pitchTop - p) * rowH;
-        ctx.fillRect(KEY_WIDTH, y, contentW, rowH);
+    if (this.display.pitchLanes) {
+      ctx.fillStyle = palette().stripe;
+      for (let p = PITCH_MIN; p <= PITCH_MAX; p++) {
+        if (isBlackKey(p)) {
+          const y = (pitchTop - p) * rowH;
+          ctx.fillRect(KEY_WIDTH, y, contentW, rowH);
+        }
       }
+    }
+    if (this.display.pitchLines) {
+      ctx.strokeStyle = palette().grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let p = PITCH_MIN; p <= PITCH_MAX; p++) {
+        const y = Math.round((pitchTop - p) * rowH) + 0.5;
+        ctx.moveTo(KEY_WIDTH, y);
+        ctx.lineTo(KEY_WIDTH + contentW, y);
+      }
+      ctx.stroke();
     }
 
     // Time grid: alternating bar shading plus beat lines once the tempo is
@@ -822,14 +858,22 @@ export class PianoRoll {
     ctx.fillStyle = BAR_STRIP;
     for (const s of strips)
       ctx.fillRect(xAt(s.from), 0, xAt(s.to) - xAt(s.from), H);
-    ctx.strokeStyle = palette().grid;
-    ctx.lineWidth = 1;
-    for (const t of lines) {
-      const x = xAt(t);
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, H);
-      ctx.stroke();
+    if (this.display.secondMarkers) {
+      ctx.strokeStyle = palette().grid;
+      ctx.lineWidth = 1;
+      for (const t of lines) {
+        const x = xAt(t);
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, H);
+        ctx.stroke();
+      }
+    }
+
+    if (this.range) {
+      ctx.fillStyle = "rgba(143, 168, 255, 0.1)";
+      const from = xAt(this.range.start);
+      ctx.fillRect(from, 0, xAt(this.range.end) - from, H);
     }
 
     // Transcribed-so-far overlay: a faint light wash over the [0, t) time span
@@ -895,12 +939,16 @@ export class PianoRoll {
       }
       ctx.globalAlpha = alpha;
       ctx.fillStyle = instrumentColor(instrument);
-      ctx.fillRect(x, y, w, Math.max(2, rowH - rowGap));
+      const tall = Math.max(2, rowH - rowGap);
+      const corner = Math.min(2, w / 2, tall / 2);
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, tall, corner);
+      ctx.fill();
       if (selected) {
         ctx.globalAlpha = 1;
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(x, y, w, Math.max(2, rowH - rowGap));
+        ctx.stroke();
       }
     }
     ctx.globalAlpha = 1;
@@ -928,7 +976,12 @@ export class PianoRoll {
 
     ctx.restore();
 
-    this.drawKeyboard(ctx, H, rowH, pitchTop);
+    if (this.display.keyboard) {
+      this.drawKeyboard(ctx, H, rowH, pitchTop);
+    } else {
+      ctx.fillStyle = palette().keyBlack;
+      ctx.fillRect(0, 0, KEY_WIDTH, H);
+    }
   }
 
   /** Time labels across the top, spaced so they never crowd. */
@@ -938,13 +991,19 @@ export class PianoRoll {
     offsetSec: number,
     pxPerSec: number,
   ) {
-    ctx.fillStyle = "#101010";
+    ctx.fillStyle = "#191d26";
     ctx.fillRect(KEY_WIDTH, 0, contentW, RULER_H);
+    if (this.range) {
+      const from = KEY_WIDTH + (this.range.start - offsetSec) * pxPerSec;
+      const to = KEY_WIDTH + (this.range.end - offsetSec) * pxPerSec;
+      ctx.fillStyle = "rgba(143, 168, 255, 0.45)";
+      ctx.fillRect(from, RULER_H - 4, to - from, 4);
+    }
     const step = [1, 2, 5, 10, 15, 30, 60, 120, 300].find((s) => s * pxPerSec >= 60) ?? 600;
     ctx.font = palette().labelFont;
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#c8c8c8";
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.fillStyle = "#98a1b3";
+    ctx.strokeStyle = "#3d4659";
     ctx.lineWidth = 1;
     const first = Math.floor(offsetSec / step) * step;
     const viewEnd = offsetSec + contentW / pxPerSec;
@@ -956,7 +1015,7 @@ export class PianoRoll {
       ctx.stroke();
       ctx.fillText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`, x + 4, RULER_H / 2 - 2);
     }
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+    ctx.strokeStyle = "#2c3342";
     ctx.beginPath();
     ctx.moveTo(KEY_WIDTH, RULER_H + 0.5);
     ctx.lineTo(KEY_WIDTH + contentW, RULER_H + 0.5);
@@ -971,7 +1030,7 @@ export class PianoRoll {
     pxPerSec: number,
   ) {
     const right = KEY_WIDTH + contentW;
-    ctx.fillStyle = "#0a0a0a";
+    ctx.fillStyle = "#12151c";
     ctx.fillRect(KEY_WIDTH, RULER_H, contentW, CHORD_H);
     ctx.font = `600 12px ${palette().bodyFont}`;
     ctx.textBaseline = "middle";
@@ -982,15 +1041,17 @@ export class PianoRoll {
       if (to < KEY_WIDTH) continue;
       if (from > right) break;
       const current = this.playhead >= chord.start && this.playhead < chord.end;
-      ctx.fillStyle = current ? "rgba(255, 255, 255, 0.2)" : "rgba(255, 255, 255, 0.07)";
-      ctx.fillRect(from + 1, RULER_H + 2, Math.max(1, to - from - 2), CHORD_H - 4);
+      ctx.fillStyle = current ? "rgba(143, 168, 255, 0.28)" : "#191d26";
+      ctx.beginPath();
+      ctx.roundRect(from + 1, RULER_H + 2, Math.max(1, to - from - 2), CHORD_H - 4, 3);
+      ctx.fill();
       // Keep the name on screen when its chord began to the left of the view.
       const textX = Math.max(from, KEY_WIDTH) + 6;
       const room = to - textX - 4;
       const short = chord.root + chord.quality;
       const text = [chord.label, short, chord.root].find((t) => ctx.measureText(t).width <= room);
       if (text) {
-        ctx.fillStyle = current ? "#ffffff" : "#cfcfcf";
+        ctx.fillStyle = current ? "#e8eaf0" : "#98a1b3";
         ctx.fillText(text, textX, y);
       }
     }
@@ -1022,7 +1083,7 @@ export class PianoRoll {
       ctx.stroke();
       // Octave label on each C (MIDI 60 = C4).
       if (showLabels && p % 12 === 0) {
-        ctx.fillStyle = palette().stripe;
+        ctx.fillStyle = "#c3c9d6";
         ctx.fillText(`C${p / 12 - 1}`, 4, y + rowH / 2);
       }
     }

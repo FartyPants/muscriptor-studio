@@ -1,35 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type Analysis, type ProjectDoc, type ProjectNote } from "../api";
+import { LoaderCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, type Analysis, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
 import type { AudioEngine } from "../audio";
 import { instrumentColor, resetInstrumentColors } from "../colors";
-import { Button } from "../components/Button";
-import { InstrumentPanel } from "../components/InstrumentPanel";
-import { InstrumentStep } from "../components/InstrumentStep";
+import { ExportPanel } from "../components/ExportPanel";
+import { InstrumentChooser } from "../components/InstrumentChooser";
+import { InstrumentPanel } from "../components/Instruments";
 import { PianoRollCanvas } from "../components/PianoRollCanvas";
+import { RetranscribeDialog, type RetranscribeRequest } from "../components/RetranscribeDialog";
 import { RollScrollbar } from "../components/RollScrollbar";
-import { EditControls, RollToolbar } from "../components/RollToolbar";
+import { EditControls, RollToolbar } from "../components/Toolbar";
 import { TopBar } from "../components/TopBar";
 import { Transport } from "../components/Transport";
+import { Button, Modal } from "../components/ui";
 import { Autosaver, type SaveState } from "../editor/autosave";
 import { NoteStore } from "../editor/noteStore";
+import { replaceRange } from "../editor/gestures";
 import { RollEditor } from "../editor/rollEditor";
-import { DEFAULT_CLEANUP, exportMidi, NO_OVERRIDES, saveBlob } from "../export";
 import { useProjectTranscription } from "../hooks/useProjectTranscription";
 import { metronomeClicks } from "../metronome";
-import type { BeatGrid, PianoRoll } from "../pianoroll";
+import { DEFAULT_DISPLAY, type BeatGrid, type GridDisplay, type PianoRoll } from "../pianoroll";
 import { formatClock, ProgressEstimator } from "../progress";
 
 type Phase = "loading" | "idle" | "transcribing" | "ready";
+type Range = { start: number; end: number };
 
-const CHORDS_KEY = "studio.showChords";
+const DISPLAY_KEY = "studio.display";
 /** After an edit, wait this long for the next one before renaming chords. */
 const ANALYSIS_DELAY_MS = 600;
 
-function loadShowChords(): boolean {
+function loadDisplay(): GridDisplay {
   try {
-    return localStorage.getItem(CHORDS_KEY) !== "off";
+    return { ...DEFAULT_DISPLAY, ...JSON.parse(localStorage.getItem(DISPLAY_KEY) ?? "{}") };
   } catch {
-    return true;
+    return DEFAULT_DISPLAY;
   }
 }
 
@@ -45,40 +49,51 @@ function displayNotes(stored: ProjectNote[], grid: BeatGrid | null) {
   }));
 }
 
-export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
+export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine }) {
   const rollRef = useRef<PianoRoll | null>(null);
   const fileRef = useRef<File | null>(null);
   const progressRef = useRef<ProgressEstimator | null>(null);
   const progress = (progressRef.current ??= new ProgressEstimator());
   const fillRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLSpanElement>(null);
-  const [doc, setDoc] = useState<ProjectDoc | null>(null);
+  const docRef = useRef<ProjectDoc | null>(null);
+  const storeRef = useRef<NoteStore | null>(null);
+  const editorRef = useRef<RollEditor | null>(null);
+  const saverRef = useRef<Autosaver | null>(null);
+  const analysisTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisRun = useRef(0);
+  const mounted = useRef(true);
+
+  const [doc, setDocState] = useState<ProjectDoc | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
+  const [background, setBackground] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [liveNames, setLiveNames] = useState<string[]>([]);
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [solo, setSolo] = useState<Set<string>>(new Set());
-  const [exporting, setExporting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [showChords, setShowChords] = useState(loadShowChords);
-  const analysisTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const analysisRun = useRef(0);
-  const [userScrolled, setUserScrolled] = useState(false);
-  const storeRef = useRef<NoteStore | null>(null);
-  const editorRef = useRef<RollEditor | null>(null);
+  const [display, setDisplay] = useState(loadDisplay);
   const [notes, setNotes] = useState<ProjectNote[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("saved");
-  const saverRef = useRef<Autosaver | null>(null);
-  const mounted = useRef(true);
   const [editing, setEditing] = useState(false);
   const [snap, setSnap] = useState(true);
+  const [scaleLock, setScaleLock] = useState(false);
   const [active, setActive] = useState<string | null>(null);
+  const [userScrolled, setUserScrolled] = useState(false);
+  const [range, setRange] = useState<Range | null>(null);
+  const [showExport, setShowExport] = useState(false);
+  const [redo, setRedo] = useState<"all" | "range" | null>(null);
   // Bumped when the editor's selection or history changes, to redraw the toolbar.
   const [, setEditTick] = useState(0);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+
+  const setDoc = (next: ProjectDoc) => {
+    docRef.current = next;
+    setDocState(next);
+  };
 
   const { transcribe, abort, stop } = useProjectTranscription({
     audio,
@@ -103,20 +118,32 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   }
 
   /** Name the key and chords of the notes as they stand, once edits pause. */
-  function scheduleAnalysis(store: NoteStore, grid: BeatGrid | null, wait: number) {
+  function scheduleAnalysis(wait: number) {
     if (analysisTimer.current !== null) clearTimeout(analysisTimer.current);
     analysisTimer.current = setTimeout(async () => {
       analysisTimer.current = null;
+      const store = storeRef.current;
+      const current = docRef.current;
+      if (!store || !current) return;
       const run = ++analysisRun.current;
       try {
-        const result = await api.analysis(store.notes, grid);
+        const result = await api.analysis(store.notes, current.beat_grid, current.key ?? null);
         if (run !== analysisRun.current || !mounted.current) return;
         setAnalysis(result);
         rollRef.current?.setChords(result.chords);
+        editorRef.current?.setScale(result.key?.scale ?? null);
       } catch {
         // Names are a help, not the work: keep showing the last ones.
       }
     }, wait);
+  }
+
+  /** Change project details, and save them with the notes. */
+  function updateDoc(patch: Partial<ProjectDoc>) {
+    const current = docRef.current;
+    if (!current) return;
+    setDoc({ ...current, ...patch });
+    saverRef.current?.changed();
   }
 
   /** Start editing `saved`: one store, followed by the roll and playback. */
@@ -127,14 +154,12 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     storeRef.current = store;
     rollRef.current?.setGridLines(saved.beat_grid);
     syncNotes(store, saved.beat_grid);
-    const editor = new RollEditor(store, rollRef.current!, audio, () =>
-      setEditTick((t) => t + 1),
-    );
+    const editor = new RollEditor(store, rollRef.current!, audio, () => setEditTick((t) => t + 1));
     editor.setGrid(saved.beat_grid);
     editorRef.current = editor;
     saverRef.current?.close();
     const saver = new Autosaver(
-      () => api.saveProject({ ...saved, notes: store.notes }),
+      () => api.saveProject({ ...docRef.current!, notes: store.notes }),
       setSaveState,
     );
     saverRef.current = saver;
@@ -142,9 +167,9 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       syncNotes(store, saved.beat_grid);
       editor.rebuild();
       saver.changed();
-      scheduleAnalysis(store, saved.beat_grid, ANALYSIS_DELAY_MS);
+      scheduleAnalysis(ANALYSIS_DELAY_MS);
     });
-    scheduleAnalysis(store, saved.beat_grid, 0);
+    scheduleAnalysis(0);
   }
 
   async function run(project: ProjectDoc, file: File, hints: string[]) {
@@ -165,8 +190,8 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         await api.saveProject({ ...current, status: "created" });
         return;
       }
-      const { notes, stopped } = outcome;
-      if (stopped && notes.length === 0) {
+      const { notes: found, stopped } = outcome;
+      if (stopped && found.length === 0) {
         await api.saveProject({ ...current, status: "created" });
         rollRef.current?.clear();
         setPhase("idle");
@@ -175,25 +200,65 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       let beatGrid = outcome.beatGrid;
       if (stopped) {
         setNotice("Finding the beats");
-        beatGrid = await api.beatGrid(current.id, notes.map((n) => n.start));
+        beatGrid = await api.beatGrid(current.id, found.map((n) => n.start));
         setNotice(null);
       }
       const saved = await api.saveProject({
         ...current,
         status: stopped ? "partial" : "completed",
-        notes,
+        notes: found,
         beat_grid: beatGrid,
       });
       // Stopped, then left: the work is saved, but the audio engine and the
       // screen now belong to someone else.
       if (!mounted.current) return;
-      showProject(saved);
       setDoc(saved);
+      showProject(saved);
       setPhase("ready");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase("idle");
     } finally {
+      setStopping(false);
+    }
+  }
+
+  /** Transcribe again, then swap the notes as one undo step. A failure changes nothing. */
+  async function retranscribe(target: Range | null, { hints, model }: RetranscribeRequest) {
+    const current = docRef.current;
+    const store = storeRef.current;
+    if (!current || !store) return;
+    const updated = { ...current, hints, model };
+    updateDoc({ hints, model });
+    editorRef.current?.setEnabled(false);
+    setEditing(false);
+    setRedo(null);
+    setBackground(true);
+    setStopping(false);
+    setError(null);
+    try {
+      await api.ensureModel(updated, () =>
+        setNotice(`Loading the ${model} model. This can take a minute.`),
+      );
+      setNotice(null);
+      const delay = current.beat_grid?.onset_delay ?? 0;
+      const span = target ?? { start: 0, end: Infinity };
+      const file = target ? await api.audioRange(current.id, target) : fileRef.current!;
+      const outcome = await transcribe(file, hints, { live: false });
+      if (!outcome || !mounted.current) return;
+      const found = outcome.notes.map((n) => ({
+        ...n,
+        start: n.start + (target?.start ?? 0),
+        end: n.end + (target?.start ?? 0),
+      }));
+      if (outcome.stopped && found.length === 0) return;
+      // Stopped early: only the part that was heard again is replaced.
+      const reached = outcome.stopped ? Math.max(...found.map((n) => n.end)) : span.end;
+      store.apply(replaceRange(store.notes, found, span.start + delay, reached + delay));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBackground(false);
       setStopping(false);
     }
   }
@@ -258,7 +323,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         fillRef.current.style.width = `${(fraction * 100).toFixed(1)}%`;
         const eta = progress.etaMs(now);
         if (labelRef.current) {
-          labelRef.current.textContent = eta == null ? "" : `done in ${formatClock(eta / 1000)}`;
+          labelRef.current.textContent = eta == null ? "Starting" : `About ${formatClock(eta / 1000)} left`;
         }
       }
       raf = requestAnimationFrame(frame);
@@ -281,30 +346,20 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     }
   }, [audio, names, muted, solo]);
 
+  useEffect(() => {
+    rollRef.current?.setDisplay(display);
+    try {
+      localStorage.setItem(DISPLAY_KEY, JSON.stringify(display));
+    } catch {
+      // A remembered preference is a convenience.
+    }
+  }, [display]);
+
   const toggle = (set: Set<string>, name: string) => {
     const next = new Set(set);
     if (!next.delete(name)) next.add(name);
     return next;
   };
-
-  const exportCurrent = useCallback(async () => {
-    if (!doc) return;
-    const current = storeRef.current?.notes ?? doc.notes;
-    setExporting(true);
-    setError(null);
-    try {
-      const blob = await exportMidi(current, doc.beat_grid, NO_OVERRIDES, {
-        ...DEFAULT_CLEANUP,
-        quantize: false,
-        fill_gaps: 0,
-      });
-      saveBlob(blob, `${doc.name}.mid`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExporting(false);
-    }
-  }, [doc]);
 
   // A failed or waiting save would lose edits if the page closed now.
   useEffect(() => {
@@ -334,19 +389,35 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [audio]);
 
+  const chooseKey = (key: ChosenKey | null) => {
+    updateDoc({ key });
+    scheduleAnalysis(0);
+  };
+
+  const working = phase === "transcribing" || background;
+  const rangeNotes = range
+    ? notes.filter((n) => {
+        const t = n.start - (doc?.beat_grid?.onset_delay ?? 0);
+        return t >= range.start && t < range.end;
+      }).length
+    : 0;
+
   return (
-    <div className="flex h-screen flex-col bg-bg">
+    <div className="flex h-full flex-col bg-ink">
       <TopBar
         title={doc?.name ?? "Loading"}
         model={doc?.model ?? null}
-        exporting={exporting}
         saveState={phase === "ready" ? saveState : null}
-        onExport={phase === "ready" ? exportCurrent : null}
+        onExport={phase === "ready" && !working ? () => setShowExport(true) : null}
+        onRetranscribe={phase === "ready" && !working ? setRedo : null}
+        hasRange={range !== null}
       />
       <Transport
         audio={audio}
         grid={doc?.beat_grid ?? null}
-        keyLabel={analysis?.key?.label ?? null}
+        analysis={analysis}
+        chosenKey={doc?.key ?? null}
+        onChooseKey={chooseKey}
         following={!userScrolled}
         onFollow={(on) => {
           setUserScrolled(!on);
@@ -360,70 +431,52 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         }}
       />
 
-      {phase === "idle" && doc && fileRef.current && (
-        <InstrumentStep
-          doc={doc}
-          onHints={(hints) => {
-            const next = { ...doc, hints };
-            setDoc(next);
-            api.saveProject(next).catch(() => {});
-          }}
-          onStart={(hints) => run(doc, fileRef.current!, hints)}
-        />
-      )}
-
-      {phase === "transcribing" && (
-        <div className="flex items-center gap-3 px-4 pb-3">
-          <div className="h-1 flex-1 overflow-hidden rounded bg-surface-2">
-            <div ref={fillRef} className="h-full bg-white" style={{ width: 0 }} />
+      {working && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-line px-3 py-2">
+          <LoaderCircle size={15} className="animate-spin text-accent" />
+          <span className="text-[13px] text-content">{stopping ? "Finishing up" : "Transcribing"}</span>
+          <div className="h-1 flex-1 overflow-hidden rounded bg-raised">
+            <div ref={fillRef} className="h-full bg-accent" style={{ width: 0 }} />
           </div>
-          <span ref={labelRef} className="font-mono text-xs text-muted" />
+          <span ref={labelRef} className="tabular text-xs text-muted" />
           <Button
             disabled={stopping}
             onClick={() => {
               setStopping(true);
               stop();
             }}
-            className="disabled:opacity-60"
           >
             {stopping ? "Stopping…" : "Stop & keep notes"}
           </Button>
         </div>
       )}
 
-      {phase === "ready" && doc?.status === "partial" && (
-        <p className="px-4 pb-3 text-sm text-muted">
+      {phase === "ready" && doc?.status === "partial" && !working && (
+        <p className="shrink-0 border-b border-line bg-panel px-3 py-1.5 text-[13px] text-muted">
           Stopped early. This project holds {notes.length.toLocaleString()} notes, up to where
           transcription stopped.
         </p>
       )}
 
       {(error || notice) && (
-        <p role={error ? "alert" : "status"} className="px-4 pb-3 text-sm text-muted">
+        <p
+          role={error ? "alert" : "status"}
+          className={`shrink-0 border-b border-line px-3 py-1.5 text-[13px] ${error ? "text-danger" : "text-muted"}`}
+        >
           {error ?? notice}
         </p>
       )}
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <RollToolbar
-            roll={rollRef.current}
-            chords={showChords}
-            onChords={(on) => {
-              setShowChords(on);
-              rollRef.current?.setChordsVisible(on);
-              try {
-                localStorage.setItem(CHORDS_KEY, on ? "on" : "off");
-              } catch {
-                // A remembered preference is a convenience.
-              }
-            }}
-          >
-            {phase === "ready" && (
+          <RollToolbar roll={rollRef.current} display={display} onDisplay={setDisplay}>
+            {phase === "ready" && !working && (
               <EditControls
                 editing={editing}
                 snap={snap}
                 snapAvailable={Boolean(doc?.beat_grid)}
+                scaleLock={scaleLock}
+                scaleAvailable={Boolean(analysis?.key)}
                 editor={editorRef.current}
                 store={storeRef.current}
                 onEditing={(on) => {
@@ -440,6 +493,10 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
                   setSnap(on);
                   if (editorRef.current) editorRef.current.snap = on;
                 }}
+                onScaleLock={(on) => {
+                  setScaleLock(on);
+                  if (editorRef.current) editorRef.current.scaleLock = on;
+                }}
               />
             )}
           </RollToolbar>
@@ -448,8 +505,9 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
               rollRef={rollRef}
               editorRef={editorRef}
               audio={audio}
-              showChords={showChords}
+              display={display}
               setUserScrolled={setUserScrolled}
+              onRange={setRange}
             />
           </div>
           <RollScrollbar rollRef={rollRef} onScroll={() => setUserScrolled(true)} />
@@ -470,6 +528,58 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
           onHover={(name) => rollRef.current?.setHighlightedInstrument(name)}
         />
       </div>
+
+      {phase === "idle" && doc && fileRef.current && (
+        <Modal
+          title="Which instruments play in this song?"
+          subtitle="Transcription listens only for the instruments you list. Leave it empty to let the model decide."
+        >
+          <InstrumentChooser
+            doc={doc}
+            onHints={(hints) => {
+              const next = { ...docRef.current!, hints };
+              setDoc(next);
+              api.saveProject(next).catch(() => {});
+            }}
+            renderActions={({ selected, busy }) => (
+              <div className="flex justify-end gap-2">
+                <Button disabled={busy} onClick={() => run(doc, fileRef.current!, [])}>
+                  Let the model decide
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={busy || selected.length === 0}
+                  onClick={() => run(doc, fileRef.current!, selected)}
+                >
+                  {selected.length
+                    ? `Transcribe with ${selected.length} instrument${selected.length === 1 ? "" : "s"}`
+                    : "Transcribe"}
+                </Button>
+              </div>
+            )}
+          />
+        </Modal>
+      )}
+
+      {showExport && doc && (
+        <ExportPanel
+          doc={doc}
+          notes={storeRef.current?.notes ?? notes}
+          names={names}
+          chosenKey={doc.key ?? null}
+          onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {redo && doc && (
+        <RetranscribeDialog
+          doc={doc}
+          range={redo === "range" ? range : null}
+          noteCount={redo === "range" ? rangeNotes : notes.length}
+          onCancel={() => setRedo(null)}
+          onStart={(request) => retranscribe(redo === "range" ? range : null, request)}
+        />
+      )}
     </div>
   );
 }

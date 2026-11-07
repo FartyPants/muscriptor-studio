@@ -1,32 +1,118 @@
 import clsx from "clsx";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Crosshair, Info, Pause, Play, SkipBack, Timer } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { Analysis, ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
 import type { BeatGrid } from "../pianoroll";
-import { IconPause, IconPlay } from "./icons";
+import { IconButton, Popover, Select } from "./ui";
 
 const fmt = (s: number) => {
-  const whole = Math.floor(Math.max(0, s));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}.${Math.floor((Math.max(0, s) % 1) * 10)}`;
+  const t = Math.max(0, s);
+  const whole = Math.floor(t);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}.${Math.floor((t % 1) * 10)}`;
 };
 
-const CHROME = "rounded-lg border border-line-strong px-3 py-1.5 text-[13px] text-content hover:bg-surface-2";
+const NAMES = ["C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
+const MINOR_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
-function Group({ children }: { children: ReactNode }) {
+const AUTO = "auto";
+const KEY_OPTIONS = [
+  ...NAMES.map((name, tonic) => ({ value: `${tonic}:major`, label: `${name} major` })),
+  ...MINOR_NAMES.map((name, tonic) => ({ value: `${tonic}:minor`, label: `${name} minor` })),
+];
+
+function KeyMenu(props: {
+  analysis: Analysis | null;
+  chosen: ChosenKey | null;
+  onChoose: (key: ChosenKey | null) => void;
+}) {
+  const { analysis, chosen, onChoose } = props;
+  const detected = analysis?.detected?.label;
+  const options = [
+    { value: AUTO, label: detected ? `Auto (${detected})` : "Auto" },
+    ...KEY_OPTIONS,
+  ];
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line p-1.5">{children}</div>
+    <Select
+      label="Key"
+      hideLabel
+      className="w-40"
+      value={chosen ? `${chosen.tonic}:${chosen.mode}` : AUTO}
+      options={options}
+      onChange={(value) => {
+        if (value === AUTO) return onChoose(null);
+        const [tonic, mode] = value.split(":");
+        onChoose({ tonic: Number(tonic), mode: mode as ChosenKey["mode"] });
+      }}
+    />
+  );
+}
+
+function Detail({ name, value, why }: { name: string; value: string; why: string }) {
+  return (
+    <div>
+      <div className="flex justify-between gap-6 text-[13px]">
+        <span className="text-muted">{name}</span>
+        <span className="tabular font-medium text-content">{value}</span>
+      </div>
+      <p className="mt-0.5 text-xs text-muted">{why}</p>
+    </div>
+  );
+}
+
+function AnalysisDetails(props: { analysis: Analysis | null; chosen: ChosenKey | null; grid: BeatGrid | null }) {
+  const { analysis, chosen, grid } = props;
+  return (
+    <Popover
+      align="right"
+      className="w-72 p-4"
+      trigger={(open, toggle) => (
+        <IconButton label="Analysis details" pressed={open} onClick={toggle}>
+          <Info size={15} />
+        </IconButton>
+      )}
+    >
+      <h3 className="mb-3 text-sm font-semibold text-content">Analysis details</h3>
+      <div className="flex flex-col gap-3">
+        <Detail
+          name="Key"
+          value={analysis?.key?.label ?? "Unknown"}
+          why={
+            chosen
+              ? `Set by you. Detected: ${analysis?.detected?.label ?? "unknown"}.`
+              : "Estimated from the transcribed notes."
+          }
+        />
+        <Detail
+          name="Tempo"
+          value={grid ? `${Math.round(grid.bpm)} BPM` : "Unknown"}
+          why={
+            grid?.steady === false
+              ? "Average of the beat grid. The beat follows the performance."
+              : "Estimated from beat grid analysis."
+          }
+        />
+        <Detail
+          name="Meter"
+          value={grid?.beats_per_bar ? `${grid.beats_per_bar}/4` : "Unknown"}
+          why="Estimated from beat grid analysis. You can correct it in Export."
+        />
+      </div>
+    </Popover>
   );
 }
 
 export function Transport(props: {
   audio: AudioEngine;
   grid: BeatGrid | null;
-  /** Estimated from the notes. */
-  keyLabel: string | null;
+  analysis: Analysis | null;
+  chosenKey: ChosenKey | null;
+  onChooseKey: (key: ChosenKey | null) => void;
   following: boolean;
   onFollow: (on: boolean) => void;
   onRestart: () => void;
 }) {
-  const { audio, grid, keyLabel, following, onFollow, onRestart } = props;
+  const { audio, grid, analysis, chosenKey, onChooseKey, following, onFollow, onRestart } = props;
   const [playing, setPlaying] = useState(false);
   const [metronome, setMetronome] = useState(false);
   const [clickLevel, setClickLevel] = useState(0.5);
@@ -52,89 +138,80 @@ export function Transport(props: {
   useEffect(() => audio.setMix(mix), [audio, mix]);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
-      <Group>
+    <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3 py-1.5">
+      <div className="flex items-center gap-1">
         <button
           type="button"
+          aria-label={playing ? "Pause" : "Play"}
           onClick={() => (playing ? audio.pause() : audio.play())}
-          className="flex w-20 items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[13px] font-medium text-black"
+          className="inline-flex h-8 w-[84px] items-center justify-center gap-1.5 rounded-control bg-accent text-[13px] font-semibold text-ink hover:bg-[#a7bbff]"
         >
-          {playing ? <IconPause /> : <IconPlay />}
+          {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
           {playing ? "Pause" : "Play"}
         </button>
-        <button
-          type="button"
-          aria-pressed={metronome}
+        <IconButton label="Back to start" onClick={onRestart}>
+          <SkipBack size={15} />
+        </IconButton>
+        <IconButton label="Follow playhead" pressed={following} onClick={() => onFollow(!following)}>
+          <Crosshair size={15} />
+        </IconButton>
+      </div>
+
+      <span className="tabular text-[15px] font-medium text-content">
+        <span ref={clock}>0:00.0</span>
+        <span className="text-faint"> / </span>
+        <span ref={total} className="text-muted">
+          0:00.0
+        </span>
+      </span>
+
+      <div className="flex items-center gap-1">
+        <IconButton
+          label="Metronome"
+          pressed={metronome}
           disabled={!grid}
           onClick={() => setMetronome(!metronome)}
-          className={clsx(CHROME, metronome && "bg-surface-2", "disabled:opacity-40")}
         >
-          Metronome
-        </button>
+          <Timer size={15} />
+        </IconButton>
         {metronome && (
           <input
             aria-label="Metronome volume"
+            title="Metronome volume"
             type="range"
             min={0}
             max={1}
             step={0.01}
             value={clickLevel}
             onChange={(e) => setClickLevel(Number(e.target.value))}
-            className="mix-slider w-16"
+            className="range w-16"
           />
         )}
-        <button type="button" aria-label="Back to start" onClick={onRestart} className={CHROME}>
-          ⟲
-        </button>
-        <span className="rounded-lg border border-line-strong px-3 py-1.5 font-mono text-[13px] text-content">
-          <span ref={clock}>0:00.0</span>
-          <span className="text-muted"> / </span>
-          <span ref={total} className="text-muted">
-            0:00.0
-          </span>
-        </span>
-        <button
-          type="button"
-          aria-label="Follow playhead"
-          aria-pressed={following}
-          onClick={() => onFollow(!following)}
-          className={clsx(CHROME, following ? "bg-surface-2" : "opacity-60")}
-        >
-          ◎
-        </button>
-      </Group>
-
-      {(grid || keyLabel) && (
-        <Group>
-          {keyLabel && (
-            <span title="Estimated from the notes" className="px-2 font-mono text-xs text-muted">
-              KEY <span className="font-medium text-content">{keyLabel}</span>
-            </span>
-          )}
-          {grid && (
-            <span className="px-2 font-mono text-xs text-muted">
-              TEMPO <span className="font-medium text-content">{Math.round(grid.bpm)} BPM</span>
-            </span>
-          )}
-        </Group>
-      )}
-
-      <div className="ml-auto">
-        <Group>
-          <span className="pl-1 text-xs text-muted">Audio</span>
-          <input
-            aria-label="Audio and MIDI balance"
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={mix}
-            onChange={(e) => setMix(Number(e.target.value))}
-            className="mix-slider w-24"
-          />
-          <span className="pr-1 text-xs text-muted">MIDI</span>
-        </Group>
       </div>
+
+      <div className="flex items-center gap-2">
+        {analysis?.key && <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />}
+        {grid && <span className="tabular text-[13px] text-content">{Math.round(grid.bpm)} BPM</span>}
+        {(grid || analysis?.key) && (
+          <AnalysisDetails analysis={analysis} chosen={chosenKey} grid={grid} />
+        )}
+      </div>
+
+      <label className={clsx("ml-auto flex items-center gap-2 text-xs text-muted")}>
+        Recording
+        <input
+          aria-label="Balance between the recording and the notes"
+          title="Balance between the recording and the notes"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={mix}
+          onChange={(e) => setMix(Number(e.target.value))}
+          className="range w-24"
+        />
+        Notes
+      </label>
     </div>
   );
 }

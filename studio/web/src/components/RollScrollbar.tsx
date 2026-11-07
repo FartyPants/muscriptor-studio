@@ -64,7 +64,7 @@ export function RollScrollbar(props: {
   };
 
   return (
-    <div className="shrink-0 bg-surface py-1 pr-1" style={{ paddingLeft: KEY_WIDTH }}>
+    <div className="shrink-0 border-t border-line py-1 pr-1" style={{ paddingLeft: KEY_WIDTH }}>
       <div
         ref={track}
         role="scrollbar"
@@ -78,9 +78,9 @@ export function RollScrollbar(props: {
         onPointerMove={onPointerMove}
         onPointerUp={release}
         onPointerCancel={release}
-        className="h-2.5 touch-none rounded-full bg-surface-2"
+        className="h-2.5 touch-none rounded-full bg-panel"
       >
-        <div ref={thumb} className="h-full rounded-full bg-faint hover:bg-muted" />
+        <div ref={thumb} className="h-full rounded-full bg-line-strong hover:bg-faint" />
       </div>
     </div>
   );

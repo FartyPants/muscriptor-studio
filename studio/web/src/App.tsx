@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAudioEngine } from "./hooks/useAudioEngine";
-import { Editor } from "./screens/Editor";
-import { NewTranscription } from "./screens/NewTranscription";
+import { ProjectScreen } from "./screens/ProjectScreen";
+import { StartScreen } from "./screens/StartScreen";
 
 function useHash(): string {
   const [hash, setHash] = useState(window.location.hash);
@@ -16,5 +16,5 @@ function useHash(): string {
 export function App() {
   const audio = useAudioEngine();
   const project = useHash().match(/^#\/p\/([0-9a-f]{32})$/)?.[1];
-  return project ? <Editor key={project} id={project} audio={audio} /> : <NewTranscription />;
+  return project ? <ProjectScreen key={project} id={project} audio={audio} /> : <StartScreen />;
 }

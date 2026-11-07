@@ -1,22 +1,23 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { AudioEngine } from "../audio";
 import type { RollEditor } from "../editor/rollEditor";
-import { PianoRoll, KEY_WIDTH } from "../pianoroll";
+import { KEY_WIDTH, PianoRoll, RULER_H, type GridDisplay } from "../pianoroll";
 
 export function PianoRollCanvas(props: {
   rollRef: RefObject<PianoRoll | null>;
   editorRef: RefObject<RollEditor | null>;
   audio: AudioEngine;
-  showChords: boolean;
+  display: GridDisplay;
+  onRange: (range: { start: number; end: number } | null) => void;
   setUserScrolled: Dispatch<SetStateAction<boolean>>;
 }) {
-  const { rollRef, editorRef, audio, showChords, setUserScrolled } = props;
+  const { rollRef, editorRef, audio, display, onRange, setUserScrolled } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
     const roll = new PianoRoll(canvas);
-    roll.setChordsVisible(showChords);
+    roll.setDisplay(display);
     rollRef.current = roll;
 
     // Wheel bindings follow the DAW convention (Ableton / FL / Reaper):
@@ -76,12 +77,16 @@ export function PianoRollCanvas(props: {
     // (grab-style). Anchored on the cursor's pitch.
     let keyDrag: { x: number; y: number } | null = null;
     let editing = false;
+    let ruler: { x: number; from: number; moved: boolean } | null = null;
+    let rulerRange: { start: number; end: number } | null = null;
     const onMouseDown = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const editor = editorRef.current;
-      if (x >= KEY_WIDTH && editor?.claims(y)) {
+      if (x >= KEY_WIDTH && y < RULER_H) {
+        ruler = { x, from: roll.xToSeconds(x), moved: false };
+      } else if (x >= KEY_WIDTH && editor?.claims(y)) {
         editing = true;
         editor.down(x, y, e.shiftKey);
       } else if (x >= KEY_WIDTH) {
@@ -95,6 +100,15 @@ export function PianoRollCanvas(props: {
       e.preventDefault();
     };
     const onMouseMove = (e: MouseEvent) => {
+      if (ruler) {
+        const x = e.clientX - canvas.getBoundingClientRect().left;
+        if (Math.abs(x - ruler.x) < 4 && !ruler.moved) return;
+        ruler.moved = true;
+        const to = Math.max(0, roll.xToSeconds(x));
+        rulerRange = { start: Math.min(ruler.from, to), end: Math.max(ruler.from, to) };
+        roll.setRange(rulerRange);
+        return;
+      }
       if (editing) {
         const rect = canvas.getBoundingClientRect();
         editorRef.current?.move(e.clientX - rect.left, e.clientY - rect.top, e.altKey);
@@ -129,6 +143,20 @@ export function PianoRollCanvas(props: {
       if (x >= KEY_WIDTH) editorRef.current?.add(x, e.clientY - rect.top);
     };
     const onMouseUp = () => {
+      if (ruler) {
+        // A click moves the playhead and clears the range. A drag keeps it.
+        if (ruler.moved) {
+          onRange(rulerRange);
+        } else {
+          roll.setRange(null);
+          onRange(null);
+          audio.seek(ruler.from);
+          roll.setPlayhead(ruler.from);
+          setUserScrolled(false);
+        }
+        ruler = null;
+        rulerRange = null;
+      }
       if (editing) {
         editing = false;
         editorRef.current?.up();
@@ -208,7 +236,7 @@ export function PianoRollCanvas(props: {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-    // `showChords` only seeds the roll; later changes go through setChordsVisible.
+    // `display` only seeds the roll; later changes go through setDisplay.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audio, rollRef, editorRef, setUserScrolled]);
 

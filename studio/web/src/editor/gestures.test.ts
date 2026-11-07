@@ -3,10 +3,12 @@ import type { ProjectNote } from "../api";
 import {
   clickSelection,
   describeSelection,
+  lockPitch,
   MIN_NOTE_SEC,
   moveNotes,
   pasteNotes,
   pitchName,
+  replaceRange,
   resizeNotes,
   updatePatch,
 } from "./gestures";
@@ -107,6 +109,53 @@ describe("updatePatch", () => {
     const b = note("b", 62, 0, 1);
     const patch = updatePatch([a, b], [a, { ...b, pitch: 63 }]);
     expect(patch.update).toEqual([{ before: b, after: { ...b, pitch: 63 } }]);
+  });
+});
+
+describe("lockPitch", () => {
+  const cMajor = new Set([0, 2, 4, 5, 7, 9, 11]);
+
+  it("leaves an in-key pitch", () => {
+    expect(lockPitch(60, cMajor)).toBe(60);
+  });
+
+  it("finds the nearest in-key pitch", () => {
+    expect(lockPitch(61, cMajor)).toBe(62);
+    expect(lockPitch(66, cMajor)).toBe(67);
+  });
+
+  it("steps along the scale in the direction of travel", () => {
+    expect(lockPitch(61, cMajor, 1)).toBe(62);
+    expect(lockPitch(61, cMajor, -1)).toBe(60);
+    expect(lockPitch(63, cMajor, -1)).toBe(62);
+  });
+
+  it("stays in range", () => {
+    expect(lockPitch(127, new Set([0]), 1)).toBeLessThanOrEqual(127);
+    expect(lockPitch(0, new Set([1]), -1)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("does nothing without a scale", () => {
+    expect(lockPitch(61, new Set())).toBe(61);
+  });
+});
+
+describe("replaceRange", () => {
+  const notes = [note("a", 60, 1, 2), note("b", 60, 3, 4), note("c", 60, 5, 6)];
+
+  it("removes only notes starting inside, and adds the new ones", () => {
+    const fresh = [note("n", 62, 3.5, 4)];
+    const patch = replaceRange(notes, fresh, 3, 5);
+    expect(patch.remove?.map((n) => n.id)).toEqual(["b"]);
+    expect(patch.add).toEqual(fresh);
+  });
+
+  it("a note starting at the end of the range stays", () => {
+    expect(replaceRange(notes, [], 3, 5).remove?.map((n) => n.id)).toEqual(["b"]);
+  });
+
+  it("covers the whole song with an open end", () => {
+    expect(replaceRange(notes, [], 0, Infinity).remove?.length).toBe(3);
   });
 });
 

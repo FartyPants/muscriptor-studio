@@ -70,6 +70,31 @@ export function updatePatch(before: ProjectNote[], after: ProjectNote[]): Patch 
   return { update };
 }
 
+/**
+ * The pitch to use when scale lock is on. Direction 0 finds the nearest in-key
+ * pitch, and above or below searches that way, for a step up or down the scale.
+ */
+export function lockPitch(pitch: number, scale: ReadonlySet<number>, direction = 0): number {
+  const inKey = (p: number) => p >= 0 && p <= 127 && scale.has(p % 12);
+  if (scale.size === 0) return pitch;
+  if (direction === 0 && inKey(pitch)) return pitch;
+  for (let distance = direction === 0 ? 1 : 0; distance < 12; distance++) {
+    if (direction >= 0 && inKey(pitch + distance)) return pitch + distance;
+    if (direction <= 0 && inKey(pitch - distance)) return pitch - distance;
+  }
+  return pitch;
+}
+
+/** Replace the notes that start in `[from, to)` with `found`, as one patch. */
+export function replaceRange(
+  notes: ProjectNote[],
+  found: ProjectNote[],
+  from: number,
+  to: number,
+): Patch {
+  return { remove: notes.filter((n) => n.start >= from && n.start < to), add: found };
+}
+
 /** Copies of `clip` for `instrument`, its earliest note landing at `at`. */
 export function pasteNotes(
   clip: ProjectNote[],

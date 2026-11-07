@@ -6,20 +6,27 @@ import asyncio
 import io
 import json
 import re
+import tempfile
 import wave
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
+import soundfile as sf
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from muscriptor.server import create_app
+from muscriptor.server import ExportRequest, create_app, export_events
+from muscriptor.utils.beats import BeatGrid
+from muscriptor.utils.midi import ExportOptions
+from muscriptor.utils.sheets import MuseScoreError, MuseScoreNotFoundError
 from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
-from studio.analysis import analyze
+from studio.analysis import Key, analyze
+from studio.engrave import write_musicxml, write_score
 from studio.instruments import scan_instruments
 from studio.models import (
     ModelBusyError,
@@ -104,11 +111,28 @@ class AnalysisNote(BaseModel):
     end: float
 
 
+class ChosenKey(BaseModel):
+    tonic: int = Field(ge=0, le=11)
+    mode: Literal["major", "minor"]
+
+    def as_key(self) -> Key:
+        return Key(tonic=self.tonic, mode=self.mode, confidence=1.0)
+
+
 class AnalysisRequest(BaseModel):
     """Notes in streamed time, as a project stores them."""
 
     notes: list[AnalysisNote]
     beat_grid: dict[str, Any] | None = None
+    key: ChosenKey | None = None
+
+
+class ScoreRequest(ExportRequest):
+    """`/export`'s request, plus what the score needs."""
+
+    key: ChosenKey | None = None
+    chords: bool = True
+    page: Literal["a4", "letter"] = "letter"
 
 
 def read_audio(path: Path):
@@ -179,7 +203,93 @@ def create_studio_app(
             n.model_copy(update={"start": n.start - delay, "end": n.end - delay})
             for n in body.notes
         ]
-        return await asyncio.to_thread(analyze, shown, body.beat_grid)
+        chosen = body.key.as_key() if body.key else None
+        return await asyncio.to_thread(analyze, shown, body.beat_grid, chosen)
+
+    def score_midi(body: ScoreRequest) -> bytes:
+        grid = None
+        if body.beat_grid is not None:
+            fields = body.beat_grid.model_dump()
+            beats = fields.pop("beats")
+            grid = BeatGrid(**fields, beats=None if beats is None else np.asarray(beats))
+        options = body.options.model_dump()
+        # Bar lines and note values need a grid to sit on.
+        options["quantize"] = grid is not None
+        return holder.events_to_midi_bytes(
+            iter(export_events(body.notes)), beat_grid=grid, export=ExportOptions(**options)
+        )
+
+    @api.post("/score/musicxml")
+    async def score_musicxml(body: ScoreRequest):
+        """MusicXML from the current notes, with key and chords."""
+
+        def build() -> bytes:
+            with tempfile.TemporaryDirectory(prefix="studio-score-") as tmp:
+                out = Path(tmp) / "score.musicxml"
+                write_musicxml(
+                    score_midi(body),
+                    out,
+                    body.beat_grid is not None,
+                    body.key.as_key() if body.key else None,
+                    body.chords,
+                )
+                return out.read_bytes()
+
+        try:
+            data = await asyncio.to_thread(build)
+        except MuseScoreNotFoundError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except MuseScoreError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return Response(content=data, media_type="application/vnd.recordare.musicxml+xml")
+
+    @api.post("/score/pdf")
+    async def score_pdf(body: ScoreRequest):
+        """Every sheet music file, in one zip."""
+
+        def build() -> bytes:
+            with tempfile.TemporaryDirectory(prefix="studio-score-") as tmp:
+                written = write_score(
+                    score_midi(body),
+                    Path(tmp),
+                    body.beat_grid is not None,
+                    body.key.as_key() if body.key else None,
+                    body.chords,
+                    body.page,
+                )
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+                    for path in written:
+                        archive.write(path, arcname=path.name)
+                return buffer.getvalue()
+
+        try:
+            data = await asyncio.to_thread(build)
+        except MuseScoreNotFoundError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except MuseScoreError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return Response(content=data, media_type="application/zip")
+
+    @api.get("/projects/{project_id}/audio-range")
+    async def audio_range(project_id: str, start: float, end: float):
+        """A slice of a project's audio as WAV, for re-transcribing part of it."""
+        if end <= start or start < 0:
+            raise HTTPException(status_code=400, detail="choose a range with a start before its end")
+
+        def cut() -> bytes:
+            path, _ = store.audio_path(project_id)
+            wav, rate = read_audio(path)
+            data = np.asarray(wav, dtype=np.float32)
+            piece = data[..., int(start * rate) : int(end * rate)]
+            buffer = io.BytesIO()
+            sf.write(buffer, piece.T if piece.ndim > 1 else piece, rate, format="WAV", subtype="FLOAT")
+            return buffer.getvalue()
+
+        try:
+            return Response(content=await asyncio.to_thread(cut), media_type="audio/wav")
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
 
     @api.post("/projects")
     async def create_project(
@@ -188,6 +298,10 @@ def create_studio_app(
     ):
         name = file.filename or "audio"
         return await asyncio.to_thread(store.create, name, file.file, model=model)
+
+    @api.get("/projects")
+    async def list_projects():
+        return await asyncio.to_thread(store.list)
 
     @api.get("/projects/{project_id}")
     async def get_project(project_id: str):

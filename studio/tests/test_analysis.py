@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from studio.analysis import analysis_windows, analyze, detect_chords, detect_key
+from studio.analysis import Key, analysis_windows, analyze, detect_key
 from studio.app import create_studio_app
 from studio.models import SwitchableModel
 
@@ -147,10 +147,23 @@ class TestChords:
 
     def test_drums_alone_have_no_chords(self):
         notes = [N("drums", 42, i * 0.25, i * 0.25 + 0.05) for i in range(64)]
-        assert analyze(notes, GRID) == {"key": None, "chords": []}
+        assert analyze(notes, GRID) == {"key": None, "detected": None, "chords": []}
 
     def test_nothing_at_all(self):
-        assert analyze([], GRID) == {"key": None, "chords": []}
+        assert analyze([], GRID) == {"key": None, "detected": None, "chords": []}
+
+    def test_a_chosen_key_replaces_the_detected_one(self):
+        notes = progression(["Eb", "Ab", "Bb", "Eb"])
+        chosen = Key(tonic=1, mode="minor", confidence=1.0)
+        got = analyze(notes, GRID, chosen)
+        assert got["key"]["label"] == "C♯ minor"
+        assert got["key"]["scale"] == sorted(chosen.scale)
+        assert got["detected"]["label"] == "E♭ major"
+
+    def test_a_chosen_key_decides_sharps_or_flats(self):
+        notes = progression(["Eb", "Ab", "Bb", "Eb"])
+        sharp = analyze(notes, GRID, Key(tonic=1, mode="minor", confidence=1.0))
+        assert any(c["root"] == "D#" for c in sharp["chords"])
 
     def test_works_without_a_grid(self):
         chords = analyze(progression(["C", "F", "G", "C"], bars_each=2), None)["chords"]

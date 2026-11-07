@@ -70,6 +70,20 @@ class ProjectStore:
         path = self._dir(project_id)
         return json.loads((path / "project.json").read_text(encoding="utf-8"))
 
+    def list(self) -> list[dict[str, Any]]:
+        """Every project, newest change first, without its notes."""
+        rows = []
+        if self.root.is_dir():
+            for path in self.root.glob("*/project.json"):
+                try:
+                    doc = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                notes = doc.pop("notes", [])
+                doc.pop("beat_grid", None)
+                rows.append({**doc, "note_count": len(notes)})
+        return sorted(rows, key=lambda d: -d.get("updated", 0))
+
     def put(self, project_id: str, doc: dict[str, Any]) -> dict[str, Any]:
         path = self._dir(project_id)
         with self._lock:

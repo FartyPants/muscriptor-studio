@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 import uvicorn
@@ -32,6 +33,11 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    # Tools kept in the project, so it can be copied to another computer.
+    fluidsynth = Path(__file__).resolve().parent.parent / "tools" / "fluidsynth" / "bin"
+    if fluidsynth.is_dir():
+        os.environ["PATH"] = f"{fluidsynth}{os.pathsep}{os.environ['PATH']}"
 
     holder = SwitchableModel(None if args.device == "auto" else args.device)
     if args.model:

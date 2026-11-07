@@ -193,6 +193,66 @@ describe("RollEditor", () => {
     expect(store.get("a")!.start - DELAY).toBeCloseTo(1.5);
   });
 
+  describe("scale lock", () => {
+    const cMajor = [0, 2, 4, 5, 7, 9, 11];
+
+    function locked(notes: ProjectNote[]) {
+      const made = setup(notes);
+      made.editor.setScale(cMajor);
+      made.editor.scaleLock = true;
+      return made;
+    }
+
+    it("drops a dragged note on an in-key pitch", () => {
+      const { store, editor } = locked([stored("a", 60, 1, 2)]);
+      drag(editor, X(1.5), Y(60), X(1.5), Y(61));
+      expect(store.get("a")!.pitch).toBe(62);
+    });
+
+    it("steps up the scale with the arrow key", () => {
+      const { store, editor } = locked([stored("a", 64, 1, 2)]);
+      editor.down(X(1.5), Y(64), false);
+      editor.up();
+      editor.key(key("ArrowUp"));
+      expect(store.get("a")!.pitch).toBe(65);
+      editor.key(key("ArrowUp"));
+      expect(store.get("a")!.pitch).toBe(67);
+    });
+
+    it("adds notes in key", () => {
+      const { store, editor } = locked([]);
+      editor.add(X(1), Y(61));
+      expect(store.notes[0].pitch).toBe(62);
+    });
+
+    it("leaves an out-of-key note alone when it only moves in time", () => {
+      const { store, editor } = locked([stored("a", 61, 1, 2)]);
+      drag(editor, X(1.5), Y(61), X(2.5), Y(61));
+      expect(store.get("a")!.pitch).toBe(61);
+    });
+
+    it("leaves untouched notes alone", () => {
+      const { store, editor } = locked([stored("a", 61, 1, 2), stored("b", 62, 3, 4)]);
+      drag(editor, X(3.5), Y(62), X(3.5), Y(64));
+      expect(store.get("a")!.pitch).toBe(61);
+    });
+
+    it("does not apply to drums", () => {
+      const drum = { ...stored("d", 61, 1, 2), instrument: "drums" };
+      const { store, editor } = locked([drum]);
+      editor.setActive("drums");
+      drag(editor, X(1.5), Y(61), X(1.5), Y(63));
+      expect(store.get("d")!.pitch).toBe(63);
+    });
+
+    it("is off until asked for", () => {
+      const { store, editor } = setup([stored("a", 60, 1, 2)]);
+      editor.setScale(cMajor);
+      drag(editor, X(1.5), Y(60), X(1.5), Y(61));
+      expect(store.get("a")!.pitch).toBe(61);
+    });
+  });
+
   it("nothing responds outside Edit mode", () => {
     const { editor } = setup([stored("a", 60, 1, 2)]);
     editor.setEnabled(false);

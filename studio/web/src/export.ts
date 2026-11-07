@@ -147,7 +147,7 @@ export async function exportMidi(
         bpm: detected.bpm,
         beats_per_bar: detected.beats_per_bar,
         first_downbeat: detected.first_downbeat,
-        onset_delay: detected.onset_delay,
+        onset_delay: detected.onset_delay ?? 0,
         beat_subdivision: detected.beat_subdivision ?? null,
         steady: detected.steady ?? true,
         beats: detected.beats ?? null,

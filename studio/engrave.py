@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from bisect import bisect_right
 import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -109,8 +110,7 @@ def _text(parent: ET.Element, tag: str, value: str) -> ET.Element:
     return element
 
 
-def _harmony(chord: dict[str, Any], key: Key, offset: int) -> ET.Element:
-    names = list(STEPS)
+def _harmony(chord: dict[str, Any], offset: int) -> ET.Element:
     harmony = ET.Element("harmony")
     step, alter = _name_parts(chord["root"])
     root = ET.SubElement(harmony, "root")
@@ -127,7 +127,6 @@ def _harmony(chord: dict[str, Any], key: Key, offset: int) -> ET.Element:
             _text(bass, "bass-alter", str(alter))
     if offset:
         _text(harmony, "offset", str(offset))
-    del names
     return harmony
 
 
@@ -185,31 +184,44 @@ def _is_drum_part(part: ET.Element) -> bool:
     return part.find(".//unpitched") is not None
 
 
-def add_chords(root: ET.Element, chords: list[dict[str, Any]], beats_per_bar: int, key: Key) -> int:
+def measure_map(measures: list[ET.Element]) -> tuple[list[float], list[int]]:
+    """Each measure's first beat, and its divisions per beat, from the score itself."""
+    divisions = 1
+    length = 4.0
+    starts, per_beat = [], []
+    beat = 0.0
+    for measure in measures:
+        found = measure.find("attributes/divisions")
+        if found is not None:
+            divisions = int(float(found.text))
+        time = measure.find("attributes/time")
+        if time is not None:
+            length = int(time.find("beats").text) * 4 / int(time.find("beat-type").text)
+        starts.append(beat)
+        per_beat.append(divisions)
+        beat += length
+    return starts, per_beat
+
+
+def add_chords(root: ET.Element, chords: list[dict[str, Any]], key: Key) -> int:
     """Write chord symbols into the first pitched part. Returns how many landed."""
     parts = [p for p in root.findall("part") if not _is_drum_part(p)]
     if not parts:
         return 0
     measures = parts[0].findall("measure")
-    divisions = 1
-    per_measure = []
-    for measure in measures:
-        found = measure.find("attributes/divisions")
-        if found is not None:
-            divisions = int(float(found.text))
-        per_measure.append(divisions)
+    starts, per_beat = measure_map(measures)
     written = 0
     for chord in chords:
-        bar = int(chord["start"] // beats_per_bar)
-        if bar >= len(measures):
+        bar = bisect_right(starts, chord["start"]) - 1
+        if bar < 0 or (bar == len(starts) - 1 and chord["start"] >= starts[bar] + 64):
             continue
-        offset = round((chord["start"] - bar * beats_per_bar) * per_measure[bar])
+        offset = round((chord["start"] - starts[bar]) * per_beat[bar])
         measure = measures[bar]
         anchor = next((i for i, child in enumerate(measure) if child.tag != "attributes"), len(measure))
         # After any symbols already placed, so a bar's chords stay in time order.
         while anchor < len(measure) and measure[anchor].tag == "harmony":
             anchor += 1
-        measure.insert(anchor, _harmony(chord, key, offset))
+        measure.insert(anchor, _harmony(chord, offset))
         written += 1
     return written
 
@@ -225,7 +237,7 @@ def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: 
             if not _is_drum_part(part):
                 rewrite_key(part, resolved)
     chords = score_chords(notes, beats_per_bar, resolved) if with_chords else []
-    written = add_chords(root, chords, beats_per_bar, resolved) if resolved and chords else 0
+    written = add_chords(root, chords, resolved) if resolved and chords else 0
     tree.write(path, encoding="utf-8", xml_declaration=True)
     return {"key": resolved.label if resolved else None, "chords": written, "beats_per_bar": beats_per_bar}
 
@@ -251,7 +263,13 @@ def set_page(mscx: Path, page: str) -> None:
 
 def _score_files(binary: str, midi_path: Path, work: Path, quantized: bool, key, with_chords: bool):
     options = work / "import.xml"
-    options.write_text(import_options(quantized))
+    # Not MuseScore's human-performance mode: it would guess its own meter. Here
+    # the MIDI's bars already come from the beat grid, and should match the roll.
+    options.write_text(
+        import_options(quantized).replace(
+            "<HumanPerformance>true<", "<HumanPerformance>false<"
+        )
+    )
     first = work / "first.mscx"
     proc = _run(binary, ["-M", str(options), "-o", str(first), str(midi_path)])
     if not first.is_file():

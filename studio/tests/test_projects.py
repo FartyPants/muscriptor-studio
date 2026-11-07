@@ -120,6 +120,22 @@ def test_a_truncated_temp_file_is_ignored(store):
     assert store.get(doc["id"])["id"] == doc["id"]
 
 
+def test_lists_newest_first_without_notes(client):
+    first = create(client, name="one.mp3")
+    second = create(client, name="two.mp3")
+    second["notes"] = NOTES
+    client.put(f"/studio/api/projects/{second['id']}", json=second)
+    rows = client.get("/studio/api/projects").json()
+    assert [r["name"] for r in rows] == ["two", "one"]
+    assert rows[0]["note_count"] == 2
+    assert "notes" not in rows[0]
+    assert first["id"] == rows[1]["id"]
+
+
+def test_lists_nothing_when_empty(client):
+    assert client.get("/studio/api/projects").json() == []
+
+
 def test_unknown_id_raises(store):
     with pytest.raises(ProjectNotFoundError):
         store.get("f" * 32)

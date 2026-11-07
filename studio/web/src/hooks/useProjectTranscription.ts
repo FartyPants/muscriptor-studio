@@ -40,8 +40,11 @@ export function useProjectTranscription(deps: {
   async function transcribe(
     file: File,
     instruments: string[],
+    { live = true }: { live?: boolean } = {},
   ): Promise<TranscriptionOutcome | null> {
-    const { audio, rollRef, progress, onBusy, onAccepted, onInstrument } = deps;
+    const { audio, progress, onBusy, onAccepted, onInstrument } = deps;
+    // Not live: a re-transcription leaves the roll and playback alone until done.
+    const rollRef = live ? deps.rollRef : { current: null };
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
@@ -53,10 +56,13 @@ export function useProjectTranscription(deps: {
     let lastEnd = 0;
 
     progress.reset();
-    audio.unlock().catch(() => {});
+    if (live) audio.unlock().catch(() => {});
     try {
       for await (const raw of streamTranscribeWithRetry("/transcribe", file, {
-        extra: instruments.length > 0 ? { instruments } : undefined,
+        extra: {
+          ...(instruments.length > 0 ? { instruments } : {}),
+          ...(live ? {} : { detect_tempo: "false" }),
+        },
         signal: controller.signal,
         clientId: CLIENT_ID,
         onAccepted,
@@ -68,7 +74,7 @@ export function useProjectTranscription(deps: {
         } else if (ev.type === "start") {
           if (!known.has(ev.instrument)) {
             known.add(ev.instrument);
-            onInstrument(ev.instrument);
+            if (live) onInstrument(ev.instrument);
           }
           const note: RollNote = {
             pitch: ev.pitch,
@@ -92,19 +98,23 @@ export function useProjectTranscription(deps: {
             end: ev.end_time,
           });
           rollRef.current?.setNoteEnd(note, ev.end_time);
-          audio.scheduleNote({
-            instrument: note.instrument,
-            pitch: note.pitch,
-            start: note.start,
-            end: ev.end_time,
-          });
+          if (live) {
+            audio.scheduleNote({
+              instrument: note.instrument,
+              pitch: note.pitch,
+              start: note.start,
+              end: ev.end_time,
+            });
+          }
         } else {
           beatGrid = ev.beat_grid ?? null;
-          rollRef.current?.setBeatGrid(beatGrid);
-          audio.shiftNotes(-(beatGrid?.onset_delay ?? 0));
+          if (live) {
+            rollRef.current?.setBeatGrid(beatGrid);
+            audio.shiftNotes(-(beatGrid?.onset_delay ?? 0));
+          }
         }
       }
-      if (lastEnd > 0) audio.scheduleStop(lastEnd + 0.3);
+      if (live && lastEnd > 0) audio.scheduleStop(lastEnd + 0.3);
       return { notes, beatGrid, stopped: false };
     } catch (e) {
       // Notes still open have no end yet, so they are left out.

@@ -5,6 +5,7 @@ import { PITCH_MAX, PITCH_MIN } from "../pianoroll";
 import {
   clickSelection,
   describeSelection,
+  lockPitch,
   MIN_NOTE_SEC,
   moveNotes,
   pasteNotes,
@@ -43,7 +44,9 @@ const LIMITS = { low: PITCH_MIN, high: PITCH_MAX };
 export class RollEditor {
   enabled = false;
   snap = true;
+  scaleLock = false;
   active: string | null = null;
+  private scale: ReadonlySet<number> | null = null;
   grid: BeatGrid | null = null;
   private selected = new Set<string>();
   private clipboard: ProjectNote[] = [];
@@ -58,6 +61,15 @@ export class RollEditor {
     private onChange: () => void,
   ) {
     this.rebuild();
+  }
+
+  setScale(pitchClasses: number[] | null) {
+    this.scale = pitchClasses && new Set(pitchClasses);
+  }
+
+  /** Scale lock applies to pitched notes, once the key is known. */
+  private lockedScale(instrument: string | null): ReadonlySet<number> | null {
+    return this.scaleLock && instrument !== "drums" ? this.scale : null;
   }
 
   setGrid(grid: BeatGrid | null) {
@@ -205,6 +217,11 @@ export class RollEditor {
       const shift = this.snapped(display + dt, alt) - display;
       const pitch = Math.round((drag.y - y) / view.rowH);
       drag.after = moveNotes(group, shift, pitch, LIMITS);
+      const scale = this.lockedScale(grabbed.instrument);
+      // A move in time alone leaves pitches as they are, in key or not.
+      if (scale && pitch !== 0) {
+        drag.after = drag.after.map((n) => ({ ...n, pitch: lockPitch(n.pitch, scale) }));
+      }
       const heard = drag.after[group.indexOf(grabbed)].pitch - grabbed.pitch;
       if (heard !== drag.pitchShift) {
         drag.pitchShift = heard;
@@ -244,8 +261,10 @@ export class RollEditor {
     if (!instrument || !this.claims(y)) return;
     const view = this.view();
     if (hitTest(x, y, this.index, view, instrument)) return;
-    const pitch = pitchAtY(y, view);
-    if (pitch < PITCH_MIN || pitch > PITCH_MAX) return;
+    const clicked = pitchAtY(y, view);
+    if (clicked < PITCH_MIN || clicked > PITCH_MAX) return;
+    const scale = this.lockedScale(instrument);
+    const pitch = scale ? lockPitch(clicked, scale) : clicked;
     const display = this.snapped(timeAtX(x, view), false);
     const start = Math.max(0, display + this.delay);
     const length = Math.max(gridStep(display, this.grid) * 2, MIN_NOTE_SEC);
@@ -278,7 +297,12 @@ export class RollEditor {
     if (group.length === 0) return;
     const display = group[0].start - this.delay;
     const dt = steps * gridStep(display, this.grid);
-    this.store.apply(updatePatch(group, moveNotes(group, dt, semitones, LIMITS)));
+    let moved = moveNotes(group, dt, semitones, LIMITS);
+    const scale = this.lockedScale(group[0].instrument);
+    if (scale && semitones !== 0) {
+      moved = moved.map((n) => ({ ...n, pitch: lockPitch(n.pitch, scale, semitones) }));
+    }
+    this.store.apply(updatePatch(group, moved));
   }
 
   private paste() {

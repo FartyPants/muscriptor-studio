@@ -236,9 +236,26 @@ def detect_chords(notes: Sequence[Any], grid: dict[str, Any] | None, key: Key | 
     return spans
 
 
-def analyze(notes: Sequence[Any], grid: dict[str, Any] | None) -> dict[str, Any]:
-    key = detect_key(notes)
+def key_json(key: Key | None) -> dict[str, Any] | None:
+    if key is None:
+        return None
     return {
-        "key": key and {"label": key.label, "mode": key.mode, "confidence": key.confidence},
+        "tonic": key.tonic,
+        "mode": key.mode,
+        "label": key.label,
+        "confidence": key.confidence,
+        "scale": sorted(key.scale),
+    }
+
+
+def analyze(
+    notes: Sequence[Any], grid: dict[str, Any] | None, chosen: Key | None = None
+) -> dict[str, Any]:
+    """The detected key, the key in use, and the chords named with the one in use."""
+    detected = detect_key(notes)
+    key = chosen or detected
+    return {
+        "key": key_json(key),
+        "detected": key_json(detected),
         "chords": detect_chords(notes, grid, key),
     }
