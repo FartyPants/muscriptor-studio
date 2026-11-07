@@ -252,7 +252,7 @@ def keep_first_tempo(root: ET.Element) -> int:
 def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: bool) -> dict[str, Any]:
     """Set the key and add chords in `path`. Returns what was used."""
     notes, beats_per_bar = notes_in_beats(midi_path)
-    resolved = key or detect_key(notes)
+    resolved = key or detect_key(notes, {"bpm": 60.0, "beats_per_bar": beats_per_bar})
     tree = ET.parse(path)
     root = tree.getroot()
     if resolved:

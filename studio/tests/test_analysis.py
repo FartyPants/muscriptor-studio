@@ -6,7 +6,14 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from studio.analysis import Key, analysis_windows, analyze, detect_key, roman_numeral
+from studio.analysis import (
+    Key,
+    analysis_windows,
+    analyze,
+    detect_key,
+    key_profile_scores,
+    roman_numeral,
+)
 from studio.app import create_studio_app
 from studio.models import SwitchableModel
 
@@ -65,6 +72,23 @@ class TestKey:
         scale = [60, 62, 64, 65, 67, 69, 71, 72]
         notes = [N("violin", p, i * 0.5, i * 0.5 + 0.5) for i, p in enumerate(scale * 4)]
         assert detect_key(notes).label == "C major"
+
+    def test_chords_settle_a_key_the_pitch_totals_get_wrong(self):
+        # B major resting on a suspended dominant, as in Kocky: the pitches alone
+        # favour F-sharp major, where the chords never settle on a tonic.
+        tonic, dominant = (47, 59, 63, 66), (42, 54, 59, 61, 66)
+        notes = []
+        for bar, chord in enumerate([tonic, dominant, dominant, tonic] * 4):
+            for pitch in chord:
+                notes.append(N("acoustic_piano", pitch, bar * 2.0, bar * 2.0 + 2))
+            for i, pitch in enumerate((66, 61, 70, 61)):
+                notes.append(N("violin", pitch, bar * 2.0 + i * 0.5, bar * 2.0 + i * 0.5 + 0.5))
+        assert Key(*key_profile_scores(notes)[0][1:], 0).label == "F♯ major"
+        assert detect_key(notes, GRID).label == "B major"
+
+    def test_a_minor_song_stays_minor_with_its_chords(self):
+        notes = progression(["Am", "Dm", "Am", "Em", "Am", "F", "Am", "Am"])
+        assert detect_key(notes, GRID).label == "A minor"
 
     def test_drums_do_not_count(self):
         notes = progression(["C", "G", "C", "F"])

@@ -46,6 +46,14 @@ QUALITIES: tuple[tuple[str, tuple[int, ...], float], ...] = (
 NO_CHORD_SCORE = 0.5  # a chord must fit better than this to be named
 CHANGE_PENALTY = 0.4  # score a change must gain, so chords don't flicker
 IN_KEY_BONUS = 0.02
+# Keys this close to the best on pitch totals alone are decided by the chords.
+SHORTLIST_MARGIN = 0.3
+TONIC_WEIGHT = 1.0
+DOMINANT_WEIGHT = 0.5
+IN_KEY_WEIGHT = 0.5
+MAJOR_TONIC = ("", "maj7")
+MINOR_TONIC = ("m", "m7")
+DOMINANT = ("", "7", "sus4")
 BASS_INSTRUMENTS = frozenset({"acoustic_bass", "electric_bass", "contrabass"})
 BASS_WEIGHT = 2.0
 LOW_NOTE_PITCH = 48
@@ -87,19 +95,61 @@ def _weight(note: Any) -> float:
     return weight * LOW_NOTE_WEIGHT if note.pitch < LOW_NOTE_PITCH else weight
 
 
-def detect_key(notes: Sequence[Any]) -> Key | None:
-    """The best-fitting key, or None without enough to go on."""
+def key_profile_scores(notes: Sequence[Any]) -> list[tuple[float, int, str]]:
+    """Every key's fit to the notes' pitch totals, best first. Empty if too few."""
     chroma = np.zeros(12)
     for n in _melodic(notes):
         chroma[n.pitch % 12] += max(0.0, n.end - n.start)
     if np.count_nonzero(chroma) < 3:
-        return None
-    candidates = []
+        return []
+    scores = []
     for tonic in range(12):
-        candidates.append((np.corrcoef(chroma, np.roll(MAJOR_PROFILE, tonic))[0, 1], tonic, "major"))
-        candidates.append((np.corrcoef(chroma, np.roll(MINOR_PROFILE, tonic))[0, 1], tonic, "minor"))
-    score, tonic, mode = max(candidates)
-    return Key(tonic=tonic, mode=mode, confidence=round(float(score), 3))
+        scores.append((float(np.corrcoef(chroma, np.roll(MAJOR_PROFILE, tonic))[0, 1]), tonic, "major"))
+        scores.append((float(np.corrcoef(chroma, np.roll(MINOR_PROFILE, tonic))[0, 1]), tonic, "minor"))
+    return sorted(scores, reverse=True)
+
+
+def harmonic_support(chords: Sequence[dict[str, Any]], key: Key) -> float:
+    """How much the song's chords behave as they would in `key`, 0 to about 1.5.
+
+    Pitch totals can't tell keys sharing most of their notes apart, such as B
+    major and F-sharp major. Chords can: a song spends its time on its tonic and
+    dominant chords, and rarely strays from its scale.
+    """
+    total = sum(c["end"] - c["start"] for c in chords)
+    if total <= 0:
+        return 0.0
+    scale = key.scale
+    tonic_share = dominant_share = in_key_share = 0.0
+    for chord in chords:
+        share = (chord["end"] - chord["start"]) / total
+        root, suffix = chord["pc"], chord["quality"]
+        intervals = next(i for s, i, _ in QUALITIES if s == suffix)
+        if {(root + i) % 12 for i in intervals} <= scale:
+            in_key_share += share
+        if root == key.tonic and suffix in (MAJOR_TONIC if key.mode == "major" else MINOR_TONIC):
+            tonic_share += share
+        elif root == (key.tonic + 7) % 12 and suffix in DOMINANT:
+            dominant_share += share
+    return TONIC_WEIGHT * tonic_share + DOMINANT_WEIGHT * dominant_share + IN_KEY_WEIGHT * in_key_share
+
+
+def detect_key(notes: Sequence[Any], grid: dict[str, Any] | None = None) -> Key | None:
+    """The best-fitting key, or None without enough to go on.
+
+    Pitch totals shortlist the keys, and the chords decide between them.
+    """
+    scores = key_profile_scores(notes)
+    if not scores:
+        return None
+    best = scores[0][0]
+    shortlist = [Key(tonic, mode, round(score, 3)) for score, tonic, mode in scores if score >= best - SHORTLIST_MARGIN]
+    if len(shortlist) == 1:
+        return shortlist[0]
+    chords = detect_chords(notes, grid, None)
+    if not chords:
+        return shortlist[0]
+    return max(shortlist, key=lambda k: k.confidence + harmonic_support(chords, k))
 
 
 def _beat_times(grid: dict[str, Any], end: float) -> np.ndarray:
@@ -227,6 +277,7 @@ def detect_chords(notes: Sequence[Any], grid: dict[str, Any] | None, key: Key | 
                     "start": round(start, 3),
                     "end": round(stop, 3),
                     "root": names[root],
+                    "pc": root,
                     "quality": suffix,
                     "bass": names[bass] if slash else None,
                     "label": label,
@@ -269,7 +320,7 @@ def analyze(
     notes: Sequence[Any], grid: dict[str, Any] | None, chosen: Key | None = None
 ) -> dict[str, Any]:
     """The detected key, the key in use, and the chords named with the one in use."""
-    detected = detect_key(notes)
+    detected = detect_key(notes, grid)
     key = chosen or detected
     return {
         "key": key_json(key),
