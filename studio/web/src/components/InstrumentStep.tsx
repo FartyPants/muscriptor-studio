@@ -62,12 +62,6 @@ export function InstrumentStep(props: {
 
   return (
     <section aria-label="Choose instruments" className="mx-4 mb-3 rounded-card border border-line bg-surface p-4">
-      <h2 className="text-sm font-medium text-content">Instruments</h2>
-      <p className="mt-1 text-xs text-muted">
-        Transcription uses only the instruments listed here. Add any that are missing, or let the
-        model decide.
-      </p>
-
       {detecting && (
         <div className="mt-3 flex items-center gap-3">
           <div className="h-1 flex-1 overflow-hidden rounded bg-surface-2">
@@ -78,9 +72,7 @@ export function InstrumentStep(props: {
         </div>
       )}
 
-      <div className="mt-3">
-        <ConditioningPanel selected={selected} onChange={change} />
-      </div>
+      <ConditioningPanel selected={selected} onChange={change} />
 
       {message && (
         <p role="status" className="mt-3 text-sm text-muted">
