@@ -49,7 +49,10 @@ export function useProjectTranscription(deps: {
   const active = useRef<AbortController | null>(null);
   const stopping = useRef(false);
 
-  async function transcribe(file: File): Promise<TranscriptionOutcome | null> {
+  async function transcribe(
+    file: File,
+    instruments: string[],
+  ): Promise<TranscriptionOutcome | null> {
     const { audio, rollRef, progress, onBusy, onAccepted, onInstrument } = deps;
     active.current?.abort();
     const controller = new AbortController();
@@ -65,6 +68,7 @@ export function useProjectTranscription(deps: {
     audio.unlock().catch(() => {});
     try {
       for await (const raw of streamTranscribeWithRetry("/transcribe", file, {
+        extra: instruments.length > 0 ? { instruments } : undefined,
         signal: controller.signal,
         clientId: CLIENT_ID,
         onAccepted,

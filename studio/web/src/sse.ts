@@ -67,9 +67,12 @@ export async function* streamTranscribe(
     });
   }
   onAccepted?.();
-  const reader = resp.body
-    .pipeThrough(new TextDecoderStream())
-    .getReader();
+  yield* readEvents(resp.body);
+}
+
+/** The JSON events of a server-sent event stream. */
+export async function* readEvents(body: NonNullable<Response["body"]>): AsyncGenerator<unknown> {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";
   while (true) {
     const { value, done } = await reader.read();

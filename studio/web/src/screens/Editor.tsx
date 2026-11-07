@@ -3,6 +3,7 @@ import { api, type ProjectDoc, type ProjectNote } from "../api";
 import type { AudioEngine } from "../audio";
 import { Button } from "../components/Button";
 import { InstrumentPanel } from "../components/InstrumentPanel";
+import { InstrumentStep } from "../components/InstrumentStep";
 import { PianoRollCanvas } from "../components/PianoRollCanvas";
 import { RollScrollbar } from "../components/RollScrollbar";
 import { EditControls, RollToolbar } from "../components/RollToolbar";
@@ -46,6 +47,8 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const [muted, setMuted] = useState<Set<string>>(new Set());
   const [solo, setSolo] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [autoDetect, setAutoDetect] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [userScrolled, setUserScrolled] = useState(false);
   const storeRef = useRef<NoteStore | null>(null);
   const editorRef = useRef<RollEditor | null>(null);
@@ -107,13 +110,17 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     });
   }
 
-  async function run(current: ProjectDoc, file: File) {
+  async function run(project: ProjectDoc, file: File, hints: string[]) {
+    const current = { ...project, hints };
+    setDoc(current);
     setPhase("transcribing");
+    setStopping(false);
     setError(null);
     setLiveNames([]);
     try {
+      await api.ensureModel(current);
       await api.saveProject({ ...current, status: "transcribing" });
-      const outcome = await transcribe(file);
+      const outcome = await transcribe(file, hints);
       if (!outcome) {
         await api.saveProject({ ...current, status: "created" });
         return;
@@ -121,6 +128,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       const { notes, stopped } = outcome;
       if (stopped && notes.length === 0) {
         await api.saveProject({ ...current, status: "created" });
+        rollRef.current?.clear();
         setPhase("idle");
         return;
       }
@@ -145,6 +153,8 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase("idle");
+    } finally {
+      setStopping(false);
     }
   }
 
@@ -166,9 +176,8 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         if (loaded.status === "completed" || loaded.status === "partial") {
           showProject(loaded);
           setPhase("ready");
-        } else if (takeStartRequest(id)) {
-          run(loaded, file);
         } else {
+          setAutoDetect(takeStartRequest(id));
           setPhase("idle");
         }
       } catch (e) {
@@ -310,10 +319,16 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       />
 
       {phase === "idle" && doc && fileRef.current && (
-        <div className="flex items-center gap-3 px-4 pb-3 text-sm text-muted">
-          <span>This project has not been transcribed yet.</span>
-          <Button onClick={() => run(doc, fileRef.current!)}>Transcribe</Button>
-        </div>
+        <InstrumentStep
+          doc={doc}
+          autoDetect={autoDetect}
+          onHints={(hints) => {
+            const next = { ...doc, hints };
+            setDoc(next);
+            api.saveProject(next).catch(() => {});
+          }}
+          onStart={(hints) => run(doc, fileRef.current!, hints)}
+        />
       )}
 
       {phase === "transcribing" && (
@@ -322,7 +337,16 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
             <div ref={fillRef} className="h-full bg-white" style={{ width: 0 }} />
           </div>
           <span ref={labelRef} className="font-mono text-xs text-muted" />
-          <Button onClick={stop}>Stop &amp; keep notes</Button>
+          <Button
+            disabled={stopping}
+            onClick={() => {
+              setStopping(true);
+              stop();
+            }}
+            className="disabled:opacity-60"
+          >
+            {stopping ? "Stopping…" : "Stop & keep notes"}
+          </Button>
         </div>
       )}
 

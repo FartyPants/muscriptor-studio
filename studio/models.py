@@ -86,6 +86,7 @@ class SwitchableModel:
         self._active: str | None = None
         self._switching = False
         self._requests = 0  # transcribe requests between arrival and last byte
+        self._scans = 0  # instrument analyses
         self._runs = 0  # blocking transcriptions, which can outlive their request
         self._state = threading.Lock()
 
@@ -101,7 +102,7 @@ class SwitchableModel:
 
     @property
     def busy(self) -> bool:
-        return self._switching or self._requests > 0 or self._runs > 0
+        return self._switching or self._requests > 0 or self._runs > 0 or self._scans > 0
 
     def available(self) -> list[dict[str, Any]]:
         return [
@@ -118,12 +119,36 @@ class SwitchableModel:
                 return "switching model"
             if self._model is None:
                 return "no model loaded"
+            if self._scans > 0:
+                return "instrument analysis running"
             self._requests += 1
             return None
 
     def leave_request(self) -> None:
         with self._state:
             self._requests -= 1
+
+    def try_enter_scan(self) -> str | None:
+        """Count an instrument analysis in, or say why it can't start.
+
+        The GPU can't serve one alongside a transcription, and upstream's lock
+        can't be reached from here, so the two exclude each other here.
+        """
+        with self._state:
+            if self._switching:
+                return "switching model"
+            if self._model is None:
+                return "no model loaded"
+            if self._scans > 0:
+                return "instrument analysis running"
+            if self._requests > 0 or self._runs > 0:
+                return "a transcription is running"
+            self._scans += 1
+            return None
+
+    def leave_scan(self) -> None:
+        with self._state:
+            self._scans -= 1
 
     # ---- switching ----------------------------------------------------------
 

@@ -88,12 +88,19 @@ class FakeModel:
     pace = 1.0
     chunks = 12
 
-    def transcribe(self, *args, **kwargs):
+    def transcribe(self, audio, **kwargs):
+        wav, rate = audio
+        # A short passage is instrument detection: one chunk, and quickly.
+        passage = wav.shape[-1] / rate <= 6
+        chunks = 1 if passage else self.chunks
         notes = sorted(make_notes(240, 60.0, seed=2), key=lambda n: n["start"])
+        allowed = kwargs.get("instruments")
+        if allowed:
+            notes = [n for n in notes if n["instrument"] in allowed]
         per_chunk = len(notes) // self.chunks
-        yield ProgressEvent(completed=0, total=self.chunks)
-        for chunk in range(self.chunks):
-            time.sleep(self.pace)
+        yield ProgressEvent(completed=0, total=chunks)
+        for chunk in range(chunks):
+            time.sleep(0.2 if passage else self.pace)
             for i, n in enumerate(notes[chunk * per_chunk : (chunk + 1) * per_chunk]):
                 start = NoteStartEvent(
                     pitch=n["pitch"],
@@ -103,7 +110,7 @@ class FakeModel:
                 )
                 yield start
                 yield NoteEndEvent(end_time=n["end"], start_event=start)
-            yield ProgressEvent(completed=chunk + 1, total=self.chunks)
+            yield ProgressEvent(completed=chunk + 1, total=chunks)
 
 
 def main() -> None:

@@ -83,7 +83,7 @@ export function NewTranscription() {
         onClick={start}
         className="disabled:opacity-50"
       >
-        {status ?? "Transcribe"}
+        {status ?? "Continue"}
       </Button>
 
       {error && (

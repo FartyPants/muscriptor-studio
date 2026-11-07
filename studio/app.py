@@ -5,18 +5,20 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import re
 import wave
 from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from muscriptor.server import create_app
 from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
+from studio.instruments import scan_instruments
 from studio.models import (
     ModelBusyError,
     ModelLoadError,
@@ -31,6 +33,7 @@ STUDIO_WEB = HERE / "web_dist"
 PLACEHOLDER = HERE / "placeholder"
 
 TRANSCRIBE_PATHS = ("/transcribe", "/transcribe/midi")
+SCAN_PATH = re.compile(r"/studio/api/projects/[^/]+/detect-instruments")
 
 
 class TranscribeGuard:
@@ -45,14 +48,17 @@ class TranscribeGuard:
         self.holder = holder
 
     async def __call__(self, scope, receive, send) -> None:
-        if (
-            scope["type"] != "http"
-            or scope["method"] != "POST"
-            or scope["path"] not in TRANSCRIBE_PATHS
-        ):
+        if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
-        refused = self.holder.try_enter_request()
+        if scope["path"] in TRANSCRIBE_PATHS:
+            enter, leave = self.holder.try_enter_request, self.holder.leave_request
+        elif SCAN_PATH.fullmatch(scope["path"]):
+            enter, leave = self.holder.try_enter_scan, self.holder.leave_scan
+        else:
+            await self.app(scope, receive, send)
+            return
+        refused = enter()
         if refused is not None:
             body = json.dumps({"detail": refused}).encode()
             await send(
@@ -70,7 +76,7 @@ class TranscribeGuard:
         try:
             await self.app(scope, receive, send)
         finally:
-            self.holder.leave_request()
+            leave()
 
 
 class ModelChoice(BaseModel):
@@ -187,6 +193,29 @@ def create_studio_app(
             return {"beat_grid": await asyncio.to_thread(detect)}
         except ProjectNotFoundError as e:
             raise HTTPException(status_code=404, detail="no such project") from e
+
+    @api.post("/projects/{project_id}/detect-instruments")
+    async def detect_instruments(project_id: str):
+        """Suggest instruments by transcribing a few passages (see `instruments.py`)."""
+        try:
+            path, _ = await asyncio.to_thread(store.audio_path, project_id)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+
+        def events():
+            try:
+                wav, sample_rate = read_audio(path)
+                for event in scan_instruments(holder, wav, sample_rate):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as e:
+                # Headers are sent by now, so the stream has to say it failed.
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # Last, so a bad API path is a 404 rather than the page from the /studio mount.
     @api.api_route("/{rest:path}", methods=["GET", "POST", "PUT", "DELETE"])
