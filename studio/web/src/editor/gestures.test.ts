@@ -8,6 +8,7 @@ import {
   moveNotes,
   pasteNotes,
   pitchName,
+  replacedSpan,
   replaceRange,
   resizeNotes,
   updatePatch,
@@ -156,6 +157,38 @@ describe("replaceRange", () => {
 
   it("covers the whole song with an open end", () => {
     expect(replaceRange(notes, [], 0, Infinity).remove?.length).toBe(3);
+  });
+});
+
+describe("replacedSpan", () => {
+  const delay = 0.02;
+  const found = [note("a", 60, 4.1, 9), note("b", 60, 5.5, 5.8)];
+
+  it("takes a whole range, moved into stored time", () => {
+    const span = replacedSpan(found, { start: 4, end: 8 }, delay, false);
+    expect(span.from).toBeCloseTo(4.02);
+    expect(span.to).toBeCloseTo(8.02);
+  });
+
+  it("has no ends for the whole song, so a first-beat note can't survive", () => {
+    expect(replacedSpan(found, null, delay, false)).toEqual({ from: -Infinity, to: Infinity });
+    const first = note("first", 60, 0.01, 1);
+    expect(replaceRange([first], found, -Infinity, Infinity).remove).toEqual([first]);
+  });
+
+  it("stops at the last note that started, not the longest note's end", () => {
+    const span = replacedSpan(found, { start: 4, end: 8 }, delay, true);
+    expect(span.to).toBeCloseTo(5.501);
+  });
+
+  it("does not shift a stop point that is already stored time", () => {
+    expect(replacedSpan(found, null, delay, true).to).toBeCloseTo(5.501);
+  });
+
+  it("keeps a note just past the stop point", () => {
+    const { from, to } = replacedSpan(found, null, delay, true);
+    const later = note("later", 60, 5.6, 6);
+    expect(replaceRange([later], found, from, to).remove).toEqual([]);
   });
 });
 

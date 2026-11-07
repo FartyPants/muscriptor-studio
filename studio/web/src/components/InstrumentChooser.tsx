@@ -24,7 +24,10 @@ export function InstrumentChooser(props: {
   const fill = useRef<HTMLDivElement>(null);
   const running = useRef<AbortController | null>(null);
 
+  // Read when a scan ends: the list may have changed while it ran.
+  const latest = useRef(selected);
   const change = (next: Set<string>) => {
+    latest.current = next;
     setSelected(next);
     onHints([...next]);
   };
@@ -48,7 +51,7 @@ export function InstrumentChooser(props: {
           if (fill.current) fill.current.style.width = `${(done / total) * 100}%`;
         },
       });
-      change(new Set([...selected, ...names]));
+      change(new Set([...latest.current, ...names]));
       if (names.length === 0) {
         setMessage("No instruments found. Add them yourself, or let the model decide.");
       }

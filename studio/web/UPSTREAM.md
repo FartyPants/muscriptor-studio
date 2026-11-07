@@ -6,6 +6,8 @@ Studio's frontend is a deliberate fork, so the original interface in `web/` stay
 - `components/PianoRollCanvas.tsx`
 - `hooks/useAudioEngine.ts`
 
+The backend also imports these private helpers from `muscriptor.utils.sheets`: `_fail`, `_run` and `_write_part_pdfs`. Check them after updating upstream.
+
 To see what Studio changed in a copied file:
 
 ```

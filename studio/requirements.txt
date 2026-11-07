@@ -1,0 +1,5 @@
+# Extra packages Studio needs on top of muscriptor. Install with:
+#   uv pip install --python .venv/Scripts/python.exe -r studio/requirements.txt
+# Never `uv sync`: it replaces GPU torch and removes these.
+transformers==5.22.2
+pytest==9.2.0

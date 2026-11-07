@@ -190,9 +190,9 @@ export function Transport(props: {
       </div>
 
       <div className="flex items-center gap-2">
-        {analysis?.key && <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />}
+        {analysis && <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />}
         {grid && <span className="tabular text-[13px] text-content">{Math.round(grid.bpm)} BPM</span>}
-        {(grid || analysis?.key) && (
+        {(grid || analysis) && (
           <AnalysisDetails analysis={analysis} chosen={chosenKey} grid={grid} />
         )}
       </div>

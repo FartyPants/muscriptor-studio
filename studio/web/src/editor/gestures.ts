@@ -85,6 +85,26 @@ export function lockPitch(pitch: number, scale: ReadonlySet<number>, direction =
   return pitch;
 }
 
+/**
+ * Which stored notes a re-transcription replaces, as `[from, to)` in stored time.
+ * `target` is in display time, and null means the whole song. `found` is already
+ * in stored time, so a stop point taken from it needs no further shift. Stopped
+ * early, only what was heard again goes: up to the last note found to start.
+ */
+export function replacedSpan(
+  found: ProjectNote[],
+  target: { start: number; end: number } | null,
+  delay: number,
+  stopped: boolean,
+): { from: number; to: number } {
+  const from = target ? target.start + delay : -Infinity;
+  if (stopped) {
+    const last = found.reduce((latest, n) => Math.max(latest, n.start), -Infinity);
+    return { from, to: last + 0.001 };
+  }
+  return { from, to: target ? target.end + delay : Infinity };
+}
+
 /** Replace the notes that start in `[from, to)` with `found`, as one patch. */
 export function replaceRange(
   notes: ProjectNote[],

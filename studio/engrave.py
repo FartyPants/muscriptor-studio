@@ -141,7 +141,9 @@ def _key_for_part(key: Key, chromatic: int) -> Key:
 
 def _fifths(key: Key) -> int:
     major = key.tonic if key.mode == "major" else (key.tonic + 3) % 12
-    return MAJOR_FIFTHS[major]
+    fifths = MAJOR_FIFTHS[major]
+    # F-sharp and G-flat share a pitch class. Match the spelling the notes get.
+    return fifths - 12 if fifths == 6 and key.uses_flats else fifths
 
 
 def rewrite_key(part: ET.Element, key: Key) -> None:
@@ -184,8 +186,8 @@ def _is_drum_part(part: ET.Element) -> bool:
     return part.find(".//unpitched") is not None
 
 
-def measure_map(measures: list[ET.Element]) -> tuple[list[float], list[int]]:
-    """Each measure's first beat, and its divisions per beat, from the score itself."""
+def measure_map(measures: list[ET.Element]) -> tuple[list[float], list[int], float]:
+    """Each measure's first beat, its divisions per beat, and where the score ends."""
     divisions = 1
     length = 4.0
     starts, per_beat = [], []
@@ -200,24 +202,26 @@ def measure_map(measures: list[ET.Element]) -> tuple[list[float], list[int]]:
         starts.append(beat)
         per_beat.append(divisions)
         beat += length
-    return starts, per_beat
+    return starts, per_beat, beat
 
 
-def add_chords(root: ET.Element, chords: list[dict[str, Any]], key: Key) -> int:
+def add_chords(root: ET.Element, chords: list[dict[str, Any]]) -> int:
     """Write chord symbols into the first pitched part. Returns how many landed."""
     parts = [p for p in root.findall("part") if not _is_drum_part(p)]
     if not parts:
         return 0
     measures = parts[0].findall("measure")
-    starts, per_beat = measure_map(measures)
+    starts, per_beat, end = measure_map(measures)
     written = 0
     for chord in chords:
         bar = bisect_right(starts, chord["start"]) - 1
-        if bar < 0 or (bar == len(starts) - 1 and chord["start"] >= starts[bar] + 64):
+        if bar < 0 or chord["start"] >= end:
             continue
         offset = round((chord["start"] - starts[bar]) * per_beat[bar])
         measure = measures[bar]
-        anchor = next((i for i, child in enumerate(measure) if child.tag != "attributes"), len(measure))
+        # After the bar's setup, so `offset` follows the divisions it is counted in.
+        setup = ("print", "attributes")
+        anchor = next((i for i, child in enumerate(measure) if child.tag not in setup), len(measure))
         # After any symbols already placed, so a bar's chords stay in time order.
         while anchor < len(measure) and measure[anchor].tag == "harmony":
             anchor += 1
@@ -237,7 +241,7 @@ def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: 
             if not _is_drum_part(part):
                 rewrite_key(part, resolved)
     chords = score_chords(notes, beats_per_bar, resolved) if with_chords else []
-    written = add_chords(root, chords, resolved) if resolved and chords else 0
+    written = add_chords(root, chords) if chords else 0
     tree.write(path, encoding="utf-8", xml_declaration=True)
     return {"key": resolved.label if resolved else None, "chords": written, "beats_per_bar": beats_per_bar}
 
@@ -263,13 +267,13 @@ def set_page(mscx: Path, page: str) -> None:
 
 def _score_files(binary: str, midi_path: Path, work: Path, quantized: bool, key, with_chords: bool):
     options = work / "import.xml"
-    # Not MuseScore's human-performance mode: it would guess its own meter. Here
-    # the MIDI's bars already come from the beat grid, and should match the roll.
-    options.write_text(
-        import_options(quantized).replace(
-            "<HumanPerformance>true<", "<HumanPerformance>false<"
-        )
-    )
+    # With a grid, the MIDI's bars are the roll's bars, so MuseScore's
+    # human-performance mode must not guess its own meter. Without one, the bars
+    # are placeholders, and its guess is the better of the two.
+    text = import_options(quantized)
+    if quantized:
+        text = text.replace("<HumanPerformance>true<", "<HumanPerformance>false<")
+    options.write_text(text)
     first = work / "first.mscx"
     proc = _run(binary, ["-M", str(options), "-o", str(first), str(midi_path)])
     if not first.is_file():
@@ -278,7 +282,8 @@ def _score_files(binary: str, midi_path: Path, work: Path, quantized: bool, key,
     proc = _run(binary, ["-o", str(musicxml), str(first)])
     if not musicxml.is_file():
         _fail("write MusicXML", proc)
-    info = prepare_musicxml(musicxml, midi_path, key, with_chords)
+    # Chords need bars that mean something.
+    info = prepare_musicxml(musicxml, midi_path, key, with_chords and quantized)
     return musicxml, info
 
 

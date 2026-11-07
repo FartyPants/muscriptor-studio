@@ -15,7 +15,7 @@ import { Transport } from "../components/Transport";
 import { Button, Modal } from "../components/ui";
 import { Autosaver, type SaveState } from "../editor/autosave";
 import { NoteStore } from "../editor/noteStore";
-import { replaceRange } from "../editor/gestures";
+import { replacedSpan, replaceRange } from "../editor/gestures";
 import { RollEditor } from "../editor/rollEditor";
 import { useProjectTranscription } from "../hooks/useProjectTranscription";
 import { metronomeClicks } from "../metronome";
@@ -229,7 +229,6 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     const store = storeRef.current;
     if (!current || !store) return;
     const updated = { ...current, hints, model };
-    updateDoc({ hints, model });
     editorRef.current?.setEnabled(false);
     setEditing(false);
     setRedo(null);
@@ -242,7 +241,6 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
       );
       setNotice(null);
       const delay = current.beat_grid?.onset_delay ?? 0;
-      const span = target ?? { start: 0, end: Infinity };
       const file = target ? await api.audioRange(current.id, target) : fileRef.current!;
       const outcome = await transcribe(file, hints, { live: false });
       if (!outcome || !mounted.current) return;
@@ -252,9 +250,10 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
         end: n.end + (target?.start ?? 0),
       }));
       if (outcome.stopped && found.length === 0) return;
-      // Stopped early: only the part that was heard again is replaced.
-      const reached = outcome.stopped ? Math.max(...found.map((n) => n.end)) : span.end;
-      store.apply(replaceRange(store.notes, found, span.start + delay, reached + delay));
+      const { from, to } = replacedSpan(found, target, delay, outcome.stopped);
+      store.apply(replaceRange(store.notes, found, from, to));
+      // Only now: a run that failed leaves the project as it was.
+      updateDoc({ hints, model });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -376,6 +375,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest("input, textarea, select")) return;
+      // The roll is behind an open dialog, so its keys are too.
+      if (document.querySelector('[role="dialog"]')) return;
       if (editorRef.current?.key(e)) {
         e.preventDefault();
         return;

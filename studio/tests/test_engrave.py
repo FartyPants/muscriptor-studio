@@ -47,13 +47,14 @@ def pitch_of(note):
 
 class TestChordPlacement:
     def test_measures_come_from_the_score(self):
-        starts, per_beat = measure_map(score(3, beats=3).findall("part/measure"))
+        starts, per_beat, end = measure_map(score(3, beats=3).findall("part/measure"))
         assert starts == [0, 3, 6]
         assert per_beat == [8, 8, 8]
+        assert end == 9
 
     def test_a_chord_lands_in_its_bar_and_beat(self):
         root = score()
-        assert add_chords(root, [chord(6.0)], C_MAJOR) == 1
+        assert add_chords(root, [chord(6.0)]) == 1
         bar = root.findall("part/measure")[1]
         harmony = bar.find("harmony")
         assert harmony.find("offset").text == "16"
@@ -61,20 +62,20 @@ class TestChordPlacement:
 
     def test_a_chord_on_the_bar_line_has_no_offset(self):
         root = score()
-        add_chords(root, [chord(4.0)], C_MAJOR)
+        add_chords(root, [chord(4.0)])
         assert root.findall("part/measure")[1].find("harmony/offset") is None
 
     def test_follows_a_meter_change(self):
         root = score(3, beats=3)
         attributes = root.findall("part/measure")[1]
         attributes.insert(0, ET.fromstring("<attributes><time><beats>4</beats><beat-type>4</beat-type></time></attributes>"))
-        add_chords(root, [chord(7.0)], C_MAJOR)
+        add_chords(root, [chord(7.0)])
         third = root.findall("part/measure")[2]
         assert third.find("harmony") is not None
 
     def test_writes_flats_kind_and_bass(self):
         root = score()
-        add_chords(root, [chord(0.0, "Ab", "m7", "Cb")], E_FLAT)
+        add_chords(root, [chord(0.0, "Ab", "m7", "Cb")])
         h = root.find("part/measure/harmony")
         assert h.find("root/root-step").text == "A"
         assert h.find("root/root-alter").text == "-1"
@@ -85,16 +86,30 @@ class TestChordPlacement:
 
     def test_several_in_a_bar_stay_in_order(self):
         root = score()
-        add_chords(root, [chord(0.0, "C"), chord(2.0, "G")], C_MAJOR)
+        add_chords(root, [chord(0.0, "C"), chord(2.0, "G")])
         roots = [h.find("root/root-step").text for h in root.findall("part/measure/harmony")]
         assert roots == ["C", "G"]
 
     def test_skips_a_drum_part(self):
         drums = '<part id="D"><measure number="1"><note><unpitched/></note></measure></part>'
         root = ET.fromstring(f'<score-partwise>{drums}<part id="P1"><measure number="1"/></part></score-partwise>')
-        add_chords(root, [chord(0.0)], C_MAJOR)
+        add_chords(root, [chord(0.0)])
         assert root.find("part[@id='D']/measure/harmony") is None
         assert root.find("part[@id='P1']/measure/harmony") is not None
+
+
+    def test_a_chord_past_the_end_is_dropped(self):
+        root = score(2)
+        assert add_chords(root, [chord(8.0)]) == 0
+
+    def test_goes_after_the_bars_setup(self):
+        root = ET.fromstring(
+            '<score-partwise><part id="P"><measure number="1"><print/>'
+            "<attributes><divisions>8</divisions></attributes><note/></measure></part></score-partwise>"
+        )
+        add_chords(root, [chord(1.0)])
+        tags = [child.tag for child in root.find("part/measure")]
+        assert tags == ["print", "attributes", "harmony", "note"]
 
 
 class TestKeyRewrite:
@@ -117,10 +132,15 @@ class TestKeyRewrite:
         rewrite_key(part, E_FLAT)
         assert pitch_of(part.find(".//note")) == ("B", -1, 4)
 
-    def test_b_flat_at_the_octave_edge(self):
-        part = self.part("B", 0, 3)
+    def test_c_flat_stays_in_the_right_octave(self):
+        part = self.part("C", -1, 4)
         rewrite_key(part, B_MINOR)
         assert pitch_of(part.find(".//note")) == ("B", 0, 3)
+
+    def test_b_sharp_stays_in_the_right_octave(self):
+        part = self.part("B", 1, 3)
+        rewrite_key(part, B_MINOR)
+        assert pitch_of(part.find(".//note")) == ("C", 0, 4)
 
     def test_removes_stale_accidentals(self):
         part = self.part()
@@ -181,6 +201,37 @@ def test_prepare_reports_the_key_used(tmp_path):
     info = prepare_musicxml(xml, midi_file(tmp_path / "a.mid"), E_FLAT, with_chords=False)
     assert info["key"] == "E♭ major"
     assert ET.parse(xml).getroot().find(".//fifths").text == "-3"
+
+
+def test_chords_from_a_midi_land_on_its_bars(tmp_path):
+    midi = mido.MidiFile(ticks_per_beat=480)
+    track = mido.MidiTrack()
+    midi.tracks.append(track)
+    # C for a 4/4 bar, then G for a bar, then Am for the first half of the next.
+    held = [((60, 64, 67), 4), ((55, 59, 62), 4), ((57, 60, 64), 2)]
+    for pitches, beats in held:
+        for pitch in pitches:
+            track.append(mido.Message("note_on", note=pitch, velocity=90, time=0))
+        for i, pitch in enumerate(pitches):
+            track.append(mido.Message("note_off", note=pitch, time=480 * beats if i == 0 else 0))
+    path = tmp_path / "s.mid"
+    midi.save(path)
+    xml = tmp_path / "s.musicxml"
+    ET.ElementTree(score(3)).write(xml)
+
+    info = prepare_musicxml(xml, path, C_MAJOR, with_chords=True)
+
+    assert info["chords"] == 3
+    measures = ET.parse(xml).getroot().findall("part/measure")
+    roots = [m.find("harmony/root/root-step").text for m in measures]
+    assert roots == ["C", "G", "A"]
+    assert measures[2].find("harmony/kind").text == "minor"
+
+
+def test_e_flat_minor_is_written_in_flats():
+    part = ET.fromstring('<part><measure><attributes><key><fifths>0</fifths></key></attributes></measure></part>')
+    rewrite_key(part, Key(3, "minor", 1))
+    assert part.find(".//fifths").text == "-6"
 
 
 @pytest.mark.parametrize(

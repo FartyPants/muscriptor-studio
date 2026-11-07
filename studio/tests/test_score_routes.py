@@ -2,6 +2,7 @@ import io
 import zipfile
 from pathlib import Path
 
+import mido
 import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
@@ -75,6 +76,40 @@ class TestMusicXml:
         r = client.post("/studio/api/score/musicxml", json=body())
         assert r.status_code == 503
         assert "MuseScore" in r.json()["detail"]
+
+
+class TestQuantizing:
+    def starts(self, midi: bytes) -> list[int]:
+        parsed = mido.MidiFile(file=io.BytesIO(midi))
+        found = []
+        for track in parsed.tracks:
+            tick = 0
+            for message in track:
+                tick += message.time
+                if message.type == "note_on" and message.velocity:
+                    found.append(tick)
+        return found
+
+    def midi_for(self, client, monkeypatch, grid):
+        seen = {}
+
+        def fake(midi, out, quantized, key, chords):
+            seen["midi"] = midi
+            Path(out).write_text("<score/>")
+
+        monkeypatch.setattr("studio.app.write_musicxml", fake)
+        notes = [{"instrument": "acoustic_piano", "pitch": 60, "start": 0.53, "end": 1.0}]
+        request = {"notes": notes, "beat_grid": grid, "options": {"quantize": False, "bpm": None}}
+        assert client.post("/studio/api/score/musicxml", json=request).status_code == 200
+        return seen["midi"]
+
+    def test_sheet_music_quantizes_even_if_the_panel_box_is_off(self, client, monkeypatch):
+        midi = self.midi_for(client, monkeypatch, {**GRID, "beat_subdivision": 4})
+        assert all(tick % 120 == 0 for tick in self.starts(midi))
+
+    def test_with_no_measured_subdivision_it_uses_sixteenths(self, client, monkeypatch):
+        midi = self.midi_for(client, monkeypatch, {**GRID, "beat_subdivision": None})
+        assert all(tick % 120 == 0 for tick in self.starts(midi))
 
 
 class TestPdf:

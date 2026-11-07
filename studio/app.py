@@ -43,6 +43,7 @@ STUDIO_WEB = HERE / "web_dist"
 PLACEHOLDER = HERE / "placeholder"
 
 TRANSCRIBE_PATHS = ("/transcribe", "/transcribe/midi")
+SCORE_SUBDIVISION = 4
 SCAN_PATH = re.compile(r"/studio/api/projects/[^/]+/detect-instruments")
 
 
@@ -213,8 +214,12 @@ def create_studio_app(
             beats = fields.pop("beats")
             grid = BeatGrid(**fields, beats=None if beats is None else np.asarray(beats))
         options = body.options.model_dump()
-        # Bar lines and note values need a grid to sit on.
+        # Bar lines and note values need a grid to sit on. Upstream skips
+        # quantizing when no subdivision was measured, which would let MuseScore
+        # pick its own meter, so sheet music falls back to sixteenths.
         options["quantize"] = grid is not None
+        if grid is not None and not options["subdivision"] and not grid.beat_subdivision:
+            options["subdivision"] = SCORE_SUBDIVISION
         return holder.events_to_midi_bytes(
             iter(export_events(body.notes)), beat_grid=grid, export=ExportOptions(**options)
         )

@@ -104,8 +104,10 @@ export function PianoRollCanvas(props: {
         const x = e.clientX - canvas.getBoundingClientRect().left;
         if (Math.abs(x - ruler.x) < 4 && !ruler.moved) return;
         ruler.moved = true;
-        const to = Math.max(0, roll.xToSeconds(x));
-        rulerRange = { start: Math.min(ruler.from, to), end: Math.max(ruler.from, to) };
+        const end = audio.duration || Infinity;
+        const to = Math.min(end, Math.max(0, roll.xToSeconds(x)));
+        const from = Math.min(end, ruler.from);
+        rulerRange = { start: Math.min(from, to), end: Math.max(from, to) };
         roll.setRange(rulerRange);
         return;
       }
@@ -145,8 +147,10 @@ export function PianoRollCanvas(props: {
     const onMouseUp = () => {
       if (ruler) {
         // A click moves the playhead and clears the range. A drag keeps it.
+        const chosen = rulerRange && rulerRange.end - rulerRange.start >= 0.25 ? rulerRange : null;
         if (ruler.moved) {
-          onRange(rulerRange);
+          roll.setRange(chosen);
+          onRange(chosen);
         } else {
           roll.setRange(null);
           onRange(null);

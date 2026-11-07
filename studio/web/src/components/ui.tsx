@@ -160,14 +160,17 @@ export function Popover(props: {
     const onPress = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
+    // In the capture phase, so Escape closes this and not a dialog around it.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
     };
     document.addEventListener("mousedown", onPress);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onPress);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -193,14 +196,18 @@ export function Popover(props: {
 /** Closes on Escape, and takes focus so the keyboard is in the right place. */
 function useDialog(onClose: () => void) {
   const panel = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  // Once, on opening: focusing again on a re-render would pull the cursor out of
+  // whatever the user is typing in.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") close.current();
     };
     document.addEventListener("keydown", onKey);
     panel.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
   return panel;
 }
 

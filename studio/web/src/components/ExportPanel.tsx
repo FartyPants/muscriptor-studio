@@ -1,10 +1,10 @@
 import { unzipSync } from "fflate";
 import { Download, FileMusic, FileText, LoaderCircle, Music4 } from "lucide-react";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
 import { label } from "../instruments";
-import { Button, Checkbox, Popover, Segmented, Select, SidePanel } from "./ui";
+import { Button, Checkbox, Segmented, Select, SidePanel } from "./ui";
 
 const GRIDS = [
   { value: 0, label: "Automatic" },
@@ -74,7 +74,8 @@ export function ExportPanel(props: {
 }) {
   const { doc, notes, names, chosenKey, onClose } = props;
   const grid = doc.beat_grid;
-  const [tempoMap, setTempoMap] = useState(grid?.steady === false);
+  const followable = (grid?.beats?.length ?? 0) >= 2;
+  const [tempoMap, setTempoMap] = useState(followable && grid?.steady === false);
   const [quantize, setQuantize] = useState(false);
   const [beatScale, setBeatScale] = useState(1);
   const [meter, setMeter] = useState(grid?.beats_per_bar ?? 4);
@@ -126,13 +127,18 @@ export function ExportPanel(props: {
   const scoreBody = () => ({
     notes: selected.map(({ instrument, pitch, start, end }) => ({ instrument, pitch, start, end })),
     beat_grid: grid && { ...grid, onset_delay: grid.onset_delay ?? 0, steady: grid.steady ?? true, beats: grid.beats ?? null },
-    options: { ...timing, ...cleanup },
+    options: { ...timing, ...cleanup, fill_gaps: 0.25 },
     key: chosenKey,
     chords,
     page,
   });
 
-  const allOn = included.size === names.length;
+  // Prepared PDFs show the options they were made with, so they end with them.
+  useEffect(() => {
+    setSheets(null);
+    archive.current = null;
+  }, [tempoMap, beatScale, meter, rhythm, chords, page, included]);
+
   const noneOn = selected.length === 0;
   const anyBusy = busy !== null;
 
@@ -144,15 +150,17 @@ export function ExportPanel(props: {
     >
       {grid ? (
         <Section title="Timing">
-          <Segmented
-            label="Bar lines"
-            value={tempoMap ? "performance" : "fixed"}
-            options={[
-              { value: "performance", label: "Follow the performance" },
-              { value: "fixed", label: "One fixed tempo" },
-            ]}
-            onChange={(v) => setTempoMap(v === "performance")}
-          />
+          {followable && (
+            <Segmented
+              label="Bar lines"
+              value={tempoMap ? "performance" : "fixed"}
+              options={[
+                { value: "performance", label: "Follow the performance" },
+                { value: "fixed", label: "One fixed tempo" },
+              ]}
+              onChange={(v) => setTempoMap(v === "performance")}
+            />
+          )}
           <Checkbox
             label="Quantize"
             hint="Moves notes onto the beat grid. This changes what you hear. Sheet music is always quantized."
@@ -192,34 +200,30 @@ export function ExportPanel(props: {
       )}
 
       <Section title="What to include">
-        <Popover
-          className="w-full p-3"
-          trigger={(_, toggle) => (
-            <Button className="w-full justify-between" onClick={toggle}>
-              {allOn ? `All instruments (${names.length})` : `${included.size} of ${names.length} instruments`}
-            </Button>
-          )}
-        >
-          <div className="flex flex-col gap-2">
-            {names.map((name) => (
-              <Checkbox
-                key={name}
-                label={label(name).replace(/^./, (c) => c.toUpperCase())}
-                checked={included.has(name)}
-                onChange={(on) => {
-                  const next = new Set(included);
-                  if (on) next.add(name);
-                  else next.delete(name);
-                  setIncluded(next);
-                }}
-              />
-            ))}
-          </div>
-        </Popover>
+        <div className="grid grid-cols-2 gap-2">
+          {names.map((name) => (
+            <Checkbox
+              key={name}
+              label={label(name).replace(/^./, (c) => c.toUpperCase())}
+              checked={included.has(name)}
+              onChange={(on) => {
+                const next = new Set(included);
+                if (on) next.add(name);
+                else next.delete(name);
+                setIncluded(next);
+              }}
+            />
+          ))}
+        </div>
         <Checkbox
           label="Chord symbols"
-          hint="Adds detected chords to MusicXML and sheet music."
-          checked={chords}
+          hint={
+            grid
+              ? "Adds detected chords to MusicXML and sheet music."
+              : "Needs a beat grid, to place chords on bars."
+          }
+          checked={chords && grid !== null}
+          disabled={!grid}
           onChange={setChords}
         />
         <div className="flex items-center justify-between gap-4">
