@@ -12,6 +12,8 @@ export type GridDisplay = {
   pitchLines: boolean;
   keyboard: boolean;
   chords: boolean;
+  /** How the timeline counts: bars and beats, or seconds. */
+  timeUnit: "bars" | "seconds";
 };
 
 export const DEFAULT_DISPLAY: GridDisplay = {
@@ -20,13 +22,22 @@ export const DEFAULT_DISPLAY: GridDisplay = {
   pitchLines: false,
   keyboard: true,
   chords: true,
+  timeUnit: "bars",
 };
 
 /** A chord name with real sharp and flat signs. */
 const prettyChord = (name: string) => name.replace(/#/g, "♯").replace(/([A-G])b/g, "$1♭");
 
 /** A named chord, in display time. */
-export type ChordSpan = { start: number; end: number; root: string; quality: string; label: string };
+export type ChordSpan = {
+  start: number;
+  end: number;
+  root: string;
+  quality: string;
+  label: string;
+  /** Its Roman numeral in the current key, if there is a key. */
+  numeral: string | null;
+};
 
 export interface RollNote {
   /** Project note id; unset for notes still streaming in. */
@@ -125,19 +136,21 @@ function beatClock(grid: BeatGrid): {
   };
 }
 
-/** Don't shade measures narrower than this (px) — double the shading step instead. */
-const MIN_BAR_PX = 40;
-
 /**
  * Shading on every other bar. Translucent so it tints the pitch rows underneath.
  */
-const BAR_STRIP = "rgba(255, 255, 255, 0.01)";
+const BAR_STRIP = "rgba(255, 255, 255, 0.022)";
 /** Beat subdivisions are dropped below this spacing (px) rather than crowding the bars. */
 const MIN_BEAT_PX = 12;
 /** Height of the time ruler across the top of the note area. */
 export const RULER_H = 26;
 /** Height of the chord bar, under the ruler. */
-const CHORD_H = 24;
+const CHORD_H = 38;
+/** Vertical lines, strongest first, drawn on the roll's black. */
+/** Pitch rows while working in key. Everything else stays dark. */
+const KEY_ROW = "#232a38";
+const TONIC_ROW = "#37436a";
+const LINE_COLORS = { bar: "#5d687e", beat: "#3a4252", step: "#262c38" };
 
 /** Reveal duration in ms — how long a note takes to grow to full width. */
 const REVEAL_MS = 280;
@@ -148,51 +161,77 @@ const NOTE_GAP_PX = 1.5;
 /** Upward nudge per overlapping same-pitch note drawn in front, so it peeks out. */
 const NOTE_STACK_PX = 1.5;
 
+export type GridLine = {
+  t: number;
+  kind: "bar" | "beat" | "step";
+  /** The bar number or time to print on the ruler, where one belongs. */
+  label?: string;
+};
+
+export type RollGrid = { lines: GridLine[]; strips: { from: number; to: number }[] };
+
+/** Bars of four, when the meter wasn't detected: a usable ruler beats none. */
+const DEFAULT_BEATS_PER_BAR = 4;
+/** Steps per beat, when no subdivision was measured. */
+const DEFAULT_STEPS = 4;
+const MIN_LABEL_PX = 42;
+const MIN_STEP_PX = 11;
+
 /**
- * Time grid for the span `[from, to]` seconds: `lines` are beat lines (or plain
- * seconds when no tempo was detected), `strips` are the shaded half of the
- * alternating bar shading — every other measure, so bars read as blocks rather
- * than as separator lines. Both are phase-locked to `first_downbeat` and
- * extrapolated backwards, so the pickup before the first downbeat is shaded and
- * ruled like any other bar.
+ * Bars, beats and beat subdivisions for the span `[from, to]` seconds. Counted
+ * from the first downbeat, so bar 1 starts there, and it follows the tracked
+ * beats when the tempo moves. Finer lines drop out as they get too close.
  */
-export function timeGrid(
-  grid: BeatGrid | null,
-  from: number,
-  to: number,
-  pxPerSec: number,
-): { lines: number[]; strips: { from: number; to: number }[] } {
-  const lines: number[] = [];
-  const strips: { from: number; to: number }[] = [];
-  // No grid: the old one-second ruler, unshaded.
-  if (!grid) {
-    for (let s = Math.max(0, Math.ceil(from)); s <= to; s++) lines.push(s);
-    return { lines, strips };
-  }
+export function musicalGrid(grid: BeatGrid, from: number, to: number, pxPerSec: number): RollGrid {
   const clock = beatClock(grid);
-  // Meter unknown: shade every beat, there's nothing coarser to group them into.
-  let step = grid.beats_per_bar ?? 1; // in beats
-  while (step * clock.period * pxPerSec < MIN_BAR_PX) step *= 2;
-  // Start one measure early so the bar straddling `from` still gets shaded.
-  for (let m = Math.floor(clock.indexAt(from) / step); ; m++) {
-    const t = clock.timeOf(m * step);
+  const perBar = grid.beats_per_bar ?? DEFAULT_BEATS_PER_BAR;
+  const barPx = perBar * clock.period * pxPerSec;
+  // Label every bar when there's room, otherwise every 2, 4, 8 or more.
+  let labelEvery = 1;
+  while (labelEvery * barPx < MIN_LABEL_PX) labelEvery *= 2;
+  const showBeats = clock.period * pxPerSec >= MIN_BEAT_PX;
+  const steps = grid.beat_subdivision ?? DEFAULT_STEPS;
+  const showSteps = (clock.period / steps) * pxPerSec >= MIN_STEP_PX;
+
+  const lines: GridLine[] = [];
+  const strips: { from: number; to: number }[] = [];
+  for (let beat = clock.indexAt(from); ; beat++) {
+    const t = clock.timeOf(beat);
     if (t > to) break;
-    const end = clock.timeOf((m + 1) * step);
-    // Odd measures carry the shading; even ones show bare background.
-    if (((m % 2) + 2) % 2 === 1 && end > 0) {
-      strips.push({ from: Math.max(0, t), to: end });
+    const next = clock.timeOf(beat + 1);
+    const bar = Math.floor(beat / perBar);
+    const startsBar = beat === bar * perBar;
+    if (t >= 0 && t >= from) {
+      if (startsBar) {
+        const labelled = bar >= 0 && bar % labelEvery === 0;
+        lines.push({ t, kind: "bar", label: labelled ? String(bar + 1) : undefined });
+      } else if (showBeats) {
+        lines.push({ t, kind: "beat" });
+      }
     }
-  }
-  // Beat lines only where they'd stay legible, and only if they're finer than
-  // the (possibly doubled) shading step.
-  if (step > 1 && clock.period * pxPerSec >= MIN_BEAT_PX) {
-    for (let k = clock.indexAt(from); ; k++) {
-      const t = clock.timeOf(k);
-      if (t > to) break;
-      if (t >= Math.max(0, from)) lines.push(t);
+    if (showSteps) {
+      for (let step = 1; step < steps; step++) {
+        const at = t + ((next - t) * step) / steps;
+        if (at >= Math.max(0, from) && at <= to) lines.push({ t: at, kind: "step" });
+      }
+    }
+    // Every other bar is shaded, so bars read as blocks.
+    if (startsBar && ((bar % 2) + 2) % 2 === 1) {
+      const end = clock.timeOf(beat + perBar);
+      if (end > 0) strips.push({ from: Math.max(0, t), to: end });
     }
   }
   return { lines, strips };
+}
+
+/** Whole seconds, spaced so the labels never crowd. */
+export function secondsGrid(from: number, to: number, pxPerSec: number): RollGrid {
+  const every = [1, 2, 5, 10, 15, 30, 60, 120, 300].find((s) => s * pxPerSec >= 60) ?? 600;
+  const lines: GridLine[] = [];
+  for (let t = Math.max(0, Math.ceil(from / every) * every); t <= to; t += every) {
+    lines.push({ t, kind: "bar", label: `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}` });
+  }
+  return { lines, strips: [] };
 }
 
 /** Ease-out cubic: fast start, slowing as it reaches the end. */
@@ -328,6 +367,8 @@ export class PianoRoll {
   private marquee: Marquee | null = null;
   private chords: ChordSpan[] = [];
   private display: GridDisplay = DEFAULT_DISPLAY;
+  /** The key to show on the pitch rows, or null for the usual lanes. */
+  private keyLanes: { tonic: number; scale: Set<number> } | null = null;
   private range: { start: number; end: number } | null = null;
   private lastRowH = 1;
   private lastPitchTop = DEFAULT_PITCH_TOP;
@@ -377,6 +418,11 @@ export class PianoRoll {
 
   setChords(chords: ChordSpan[]) {
     this.chords = chords;
+  }
+
+  /** Light the key's rows and dim the rest, for working in key. */
+  setKeyLanes(key: { tonic: number; scale: number[] } | null) {
+    this.keyLanes = key && { tonic: key.tonic, scale: new Set(key.scale) };
   }
 
   setDisplay(display: GridDisplay) {
@@ -833,7 +879,14 @@ export class PianoRoll {
 
     // Pitch grid: darker rows under the black keys, so each octave's shape is
     // readable at a glance (the keyboard's own pattern, mirrored into the notes).
-    if (this.display.pitchLanes) {
+    if (this.keyLanes) {
+      const { tonic, scale } = this.keyLanes;
+      for (let p = PITCH_MIN; p <= PITCH_MAX; p++) {
+        if (!scale.has(p % 12)) continue;
+        ctx.fillStyle = p % 12 === tonic ? TONIC_ROW : KEY_ROW;
+        ctx.fillRect(KEY_WIDTH, (pitchTop - p) * rowH, contentW, rowH - 1);
+      }
+    } else if (this.display.pitchLanes) {
       ctx.fillStyle = palette().stripe;
       for (let p = PITCH_MIN; p <= PITCH_MAX; p++) {
         if (isBlackKey(p)) {
@@ -857,24 +910,23 @@ export class PianoRoll {
     // Time grid: alternating bar shading plus beat lines once the tempo is
     // known, else a plain one-second ruler. The shading is translucent, so it
     // lifts the black-key rows above too instead of painting over them.
-    const { lines, strips } = timeGrid(
-      this.beatGrid,
-      offsetSec,
-      offsetSec + viewSec,
-      pxPerSec,
-    );
+    const { lines, strips } = this.gridFor(offsetSec, offsetSec + viewSec, pxPerSec);
     const xAt = (t: number) => KEY_WIDTH + (t - offsetSec) * pxPerSec;
     ctx.fillStyle = BAR_STRIP;
     for (const s of strips)
       ctx.fillRect(xAt(s.from), 0, xAt(s.to) - xAt(s.from), H);
     if (this.display.secondMarkers) {
-      ctx.strokeStyle = palette().grid;
       ctx.lineWidth = 1;
-      for (const t of lines) {
-        const x = xAt(t);
+      // Finest first, so a bar line is never painted over by a beat line.
+      for (const kind of ["step", "beat", "bar"] as const) {
+        ctx.strokeStyle = LINE_COLORS[kind];
         ctx.beginPath();
-        ctx.moveTo(x + 0.5, 0);
-        ctx.lineTo(x + 0.5, H);
+        for (const line of lines) {
+          if (line.kind !== kind) continue;
+          const x = Math.round(xAt(line.t)) + 0.5;
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, H);
+        }
         ctx.stroke();
       }
     }
@@ -1008,27 +1060,36 @@ export class PianoRoll {
       ctx.fillStyle = "rgba(143, 168, 255, 0.45)";
       ctx.fillRect(from, RULER_H - 4, to - from, 4);
     }
-    const step = [1, 2, 5, 10, 15, 30, 60, 120, 300].find((s) => s * pxPerSec >= 60) ?? 600;
-    ctx.font = palette().labelFont;
+    ctx.font = `500 11px ${palette().bodyFont}`;
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#98a1b3";
-    ctx.strokeStyle = "#3d4659";
     ctx.lineWidth = 1;
-    const first = Math.floor(offsetSec / step) * step;
-    const viewEnd = offsetSec + contentW / pxPerSec;
-    for (let t = first; t <= viewEnd; t += step) {
-      const x = KEY_WIDTH + (t - offsetSec) * pxPerSec;
+    const { lines } = this.gridFor(offsetSec, offsetSec + contentW / pxPerSec, pxPerSec);
+    for (const line of lines) {
+      const tall = line.label !== undefined;
+      if (!tall && line.kind !== "bar") continue;
+      const x = Math.round(KEY_WIDTH + (line.t - offsetSec) * pxPerSec) + 0.5;
+      ctx.strokeStyle = tall ? "#6b7487" : "#3d4659";
       ctx.beginPath();
-      ctx.moveTo(x + 0.5, RULER_H - 6);
-      ctx.lineTo(x + 0.5, RULER_H);
+      ctx.moveTo(x, tall ? RULER_H - 9 : RULER_H - 5);
+      ctx.lineTo(x, RULER_H);
       ctx.stroke();
-      ctx.fillText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`, x + 4, RULER_H / 2 - 2);
+      if (tall) {
+        ctx.fillStyle = "#c3c9d6";
+        ctx.fillText(line.label!, x + 4, RULER_H / 2 - 2);
+      }
     }
     ctx.strokeStyle = "#2c3342";
     ctx.beginPath();
     ctx.moveTo(KEY_WIDTH, RULER_H + 0.5);
     ctx.lineTo(KEY_WIDTH + contentW, RULER_H + 0.5);
     ctx.stroke();
+  }
+
+  /** The grid for a span: musical if there's a beat grid and it's chosen. */
+  private gridFor(from: number, to: number, pxPerSec: number): RollGrid {
+    return this.beatGrid && this.display.timeUnit === "bars"
+      ? musicalGrid(this.beatGrid, from, to, pxPerSec)
+      : secondsGrid(from, to, pxPerSec);
   }
 
   /** The chord bar: one block per chord, the one at the playhead lit up. */
@@ -1041,9 +1102,7 @@ export class PianoRoll {
     const right = KEY_WIDTH + contentW;
     ctx.fillStyle = "#12151c";
     ctx.fillRect(KEY_WIDTH, RULER_H, contentW, CHORD_H);
-    ctx.font = `600 12px ${palette().bodyFont}`;
     ctx.textBaseline = "middle";
-    const y = RULER_H + CHORD_H / 2;
     for (const chord of this.chords) {
       const from = KEY_WIDTH + (chord.start - offsetSec) * pxPerSec;
       const to = KEY_WIDTH + (chord.end - offsetSec) * pxPerSec;
@@ -1057,11 +1116,17 @@ export class PianoRoll {
       // Keep the name on screen when its chord began to the left of the view.
       const textX = Math.max(from, KEY_WIDTH) + 6;
       const room = to - textX - 4;
+      ctx.font = `600 13px ${palette().bodyFont}`;
       const names = [chord.label, chord.root + chord.quality, chord.root].map(prettyChord);
       const text = names.find((t) => ctx.measureText(t).width <= room);
       if (text) {
-        ctx.fillStyle = current ? "#e8eaf0" : "#98a1b3";
-        ctx.fillText(text, textX, y);
+        ctx.fillStyle = current ? "#ffffff" : "#c3c9d6";
+        ctx.fillText(text, textX, RULER_H + 13);
+      }
+      ctx.font = `500 11px ${palette().bodyFont}`;
+      if (chord.numeral && ctx.measureText(chord.numeral).width <= room) {
+        ctx.fillStyle = current ? "#c9d4ff" : "#98a1b3";
+        ctx.fillText(chord.numeral, textX, RULER_H + 27);
       }
     }
   }
@@ -1083,6 +1148,13 @@ export class PianoRoll {
       if (y + rowH < 0 || y > H) continue;
       ctx.fillStyle = isBlackKey(p) ? palette().keyBlack : palette().keyWhite;
       ctx.fillRect(0, y, KEY_WIDTH, rowH);
+      if (this.keyLanes && !this.keyLanes.scale.has(p % 12)) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fillRect(0, y, KEY_WIDTH, rowH);
+      } else if (this.keyLanes && p % 12 === this.keyLanes.tonic) {
+        ctx.fillStyle = "rgba(143, 168, 255, 0.45)";
+        ctx.fillRect(0, y, KEY_WIDTH, rowH);
+      }
       // Thin separator between adjacent keys.
       ctx.strokeStyle = palette().stripe;
       ctx.lineWidth = 1;

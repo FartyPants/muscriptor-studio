@@ -3,10 +3,12 @@ import type { ReactNode } from "react";
 import type { NoteStore } from "../editor/noteStore";
 import type { RollEditor } from "../editor/rollEditor";
 import type { GridDisplay, PianoRoll } from "../pianoroll";
-import { Checkbox, IconButton, Popover, Toggle } from "./ui";
+import { Checkbox, IconButton, Popover, Segmented, Toggle } from "./ui";
 
-const DISPLAY: { key: keyof GridDisplay; label: string; hint: string }[] = [
-  { key: "secondMarkers", label: "Time lines", hint: "Vertical lines along the timeline." },
+type DisplaySwitch = Exclude<keyof GridDisplay, "timeUnit">;
+
+const DISPLAY: { key: DisplaySwitch; label: string; hint: string }[] = [
+  { key: "secondMarkers", label: "Grid lines", hint: "Vertical lines for bars and beats, or seconds." },
   { key: "pitchLanes", label: "Pitch lanes", hint: "Shaded rows, so neighbouring pitches are easy to tell apart." },
   { key: "pitchLines", label: "Pitch lines", hint: "Thin horizontal lines between each pitch row." },
   { key: "keyboard", label: "Keyboard", hint: "Piano keys and note names on the left edge." },
@@ -96,13 +98,27 @@ export function RollToolbar(props: {
   roll: PianoRoll | null;
   display: GridDisplay;
   onDisplay: (display: GridDisplay) => void;
+  /** Bars need a detected tempo. */
+  hasBars: boolean;
   children?: ReactNode;
 }) {
-  const { roll, display, onDisplay, children } = props;
+  const { roll, display, onDisplay, hasBars, children } = props;
   return (
     <div className="flex h-11 shrink-0 items-center gap-0.5 border-b border-line px-2">
       {children}
       <div className="ml-auto flex items-center gap-0.5">
+        {hasBars && (
+          <Segmented
+            label="Timeline"
+            className="mr-2"
+            value={display.timeUnit}
+            options={[
+              { value: "bars", label: "Bars" },
+              { value: "seconds", label: "Time" },
+            ]}
+            onChange={(timeUnit) => onDisplay({ ...display, timeUnit })}
+          />
+        )}
         <IconButton label="Fit all notes" onClick={() => roll?.fitNotes()}>
           <Maximize2 size={15} />
         </IconButton>

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from studio.analysis import Key, analysis_windows, analyze, detect_key
+from studio.analysis import Key, analysis_windows, analyze, detect_key, roman_numeral
 from studio.app import create_studio_app
 from studio.models import SwitchableModel
 
@@ -193,6 +193,59 @@ class TestChords:
         started = time.perf_counter()
         analyze(notes, GRID)
         assert time.perf_counter() - started < 1.0
+
+
+class TestNumerals:
+    C = Key(tonic=0, mode="major", confidence=1.0)
+    A_MINOR = Key(tonic=9, mode="minor", confidence=1.0)
+
+    @pytest.mark.parametrize(
+        "root,quality,want",
+        [
+            (0, "", "I"),
+            (2, "m", "ii"),
+            (4, "m", "iii"),
+            (5, "", "IV"),
+            (7, "", "V"),
+            (7, "7", "V7"),
+            (9, "m", "vi"),
+            (9, "m7", "vi7"),
+            (11, "dim", "vii°"),
+            (0, "maj7", "Imaj7"),
+            (7, "sus4", "Vsus4"),
+            (10, "", "♭VII"),
+            (8, "", "♭VI"),
+            (3, "", "♭III"),
+        ],
+    )
+    def test_in_a_major_key(self, root, quality, want):
+        assert roman_numeral(root, quality, self.C) == want
+
+    @pytest.mark.parametrize(
+        "root,quality,want",
+        [
+            (9, "m", "i"),
+            (11, "dim", "ii°"),
+            (0, "", "III"),
+            (2, "m", "iv"),
+            (4, "m", "v"),
+            (4, "", "V"),
+            (4, "7", "V7"),
+            (5, "", "VI"),
+            (7, "", "VII"),
+        ],
+    )
+    def test_in_a_minor_key(self, root, quality, want):
+        assert roman_numeral(root, quality, self.A_MINOR) == want
+
+    def test_a_song_gets_its_numerals(self):
+        chords = analyze(progression(["C", "Am", "F", "G"] * 2), GRID)["chords"]
+        assert [c["numeral"] for c in chords[:4]] == ["I", "vi", "IV", "V"]
+
+    def test_your_chosen_key_decides_them(self):
+        notes = progression(["C", "G", "C", "G"])
+        chords = analyze(notes, GRID, Key(tonic=7, mode="major", confidence=1.0))["chords"]
+        assert [c["numeral"] for c in chords] == ["IV", "I", "IV", "I"]
 
 
 class TestWindows:

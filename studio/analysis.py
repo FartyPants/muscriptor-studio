@@ -230,10 +230,27 @@ def detect_chords(notes: Sequence[Any], grid: dict[str, Any] | None, key: Key | 
                     "quality": suffix,
                     "bass": names[bass] if slash else None,
                     "label": label,
+                    "numeral": roman_numeral(root, suffix, key) if key else None,
                 }
             )
         i = j + 1
     return spans
+
+
+# Degree of each semitone above the tonic, written against that key's own scale.
+MAJOR_DEGREES = ["I", "♭II", "II", "♭III", "III", "IV", "♯IV", "V", "♭VI", "VI", "♭VII", "VII"]
+MINOR_DEGREES = ["I", "♭II", "II", "III", "♯III", "IV", "♯IV", "V", "VI", "♯VI", "VII", "♯VII"]
+NUMERAL_SUFFIXES = {"": "", "m": "", "7": "7", "maj7": "maj7", "m7": "7", "dim": "°", "sus4": "sus4"}
+LOWER_CASE = ("m", "m7", "dim")
+
+
+def roman_numeral(root: int, quality: str, key: Key) -> str:
+    """A chord's function in `key`: lower case for minor, as in ii, V7 or vii°."""
+    degrees = MAJOR_DEGREES if key.mode == "major" else MINOR_DEGREES
+    numeral = degrees[(root - key.tonic) % 12]
+    if quality in LOWER_CASE:
+        numeral = numeral.lower()
+    return numeral + NUMERAL_SUFFIXES[quality]
 
 
 def key_json(key: Key | None) -> dict[str, Any] | None:

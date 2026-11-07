@@ -360,6 +360,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     }
   }, [display]);
 
+  const working = phase === "transcribing" || background;
+
   const toggle = (set: Set<string>, name: string) => {
     const next = new Set(set);
     if (!next.delete(name)) next.add(name);
@@ -396,12 +398,17 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     return () => window.removeEventListener("keydown", onKey);
   }, [audio]);
 
+  // Stay in key shows the key on the pitch rows, whichever key is in use.
+  const inKey = editing && scaleLock && !working ? analysis?.key : null;
+  useEffect(() => {
+    rollRef.current?.setKeyLanes(inKey ?? null);
+  }, [inKey]);
+
   const chooseKey = (key: ChosenKey | null) => {
     updateDoc({ key });
     scheduleAnalysis(0);
   };
 
-  const working = phase === "transcribing" || background;
   const rangeNotes = range
     ? notes.filter((n) => {
         const t = n.start - (doc?.beat_grid?.onset_delay ?? 0);
@@ -476,7 +483,12 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <RollToolbar roll={rollRef.current} display={display} onDisplay={setDisplay}>
+          <RollToolbar
+            roll={rollRef.current}
+            display={display}
+            onDisplay={setDisplay}
+            hasBars={Boolean(doc?.beat_grid)}
+          >
             {phase === "ready" && !working && (
               <EditControls
                 editing={editing}
