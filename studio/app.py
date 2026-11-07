@@ -180,9 +180,8 @@ def create_studio_app(
         def detect():
             path, _ = store.audio_path(project_id)
             grid = holder.detect_beat_grid_for(read_audio(path), "best-effort")
-            if grid is None:
-                return None
-            return grid_to_json(grid.with_onset_delay(body.onsets) if body.onsets else grid)
+            # Always measured: with no onsets it records 0, which /export needs.
+            return None if grid is None else grid_to_json(grid.with_onset_delay(body.onsets))
 
         try:
             return {"beat_grid": await asyncio.to_thread(detect)}

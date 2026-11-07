@@ -86,7 +86,7 @@ class SwitchableModel:
         self._active: str | None = None
         self._switching = False
         self._requests = 0  # transcribe requests between arrival and last byte
-        self._runs = 0  # model generators still open
+        self._runs = 0  # blocking transcriptions, which can outlive their request
         self._state = threading.Lock()
 
     # ---- state -------------------------------------------------------------
@@ -135,6 +135,8 @@ class SwitchableModel:
         with self._state:
             if size == self._active:
                 return
+            if self._switching:
+                raise ModelBusyError("a model is already loading")
             if self.busy:
                 raise ModelBusyError("a transcription is running")
             self._switching = True
@@ -167,14 +169,12 @@ class SwitchableModel:
         return model
 
     def transcribe(self, *args: Any, **kwargs: Any) -> Iterator[Any]:
-        model = self._current()
-        with self._state:
-            self._runs += 1
-        try:
-            yield from model.transcribe(*args, **kwargs)
-        finally:
-            with self._state:
-                self._runs -= 1
+        # Not counted in `_runs`: a client that disconnects leaves this generator
+        # abandoned, not closed, so a count could stay up until a garbage
+        # collection. The request count covers the run instead, since a streaming
+        # response ends only once its worker thread has stopped. `free_memory`
+        # collects the abandoned generator, which releases the old model.
+        return self._current().transcribe(*args, **kwargs)
 
     def transcribe_and_postprocess(self, *args: Any, **kwargs: Any) -> Any:
         model = self._current()

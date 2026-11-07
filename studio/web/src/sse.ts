@@ -130,7 +130,9 @@ export async function* streamTranscribeWithRetry(
       yield* streamTranscribe(url, file, opts);
       return;
     } catch (e) {
+      // Waiting won't help when no model is loaded: only a model switch fixes it.
       if (!(e instanceof TranscribeError) || e.status !== 503) throw e;
+      if (e.userMessage === "no model loaded") throw e;
       opts.onBusy?.({ attempt, retryInMs: RETRY_INTERVAL_MS });
       await delay(RETRY_INTERVAL_MS, opts.signal);
     }

@@ -87,13 +87,49 @@ describe("Autosaver", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("stops after dispose", async () => {
+  it("flush waits for a running save, then saves what changed during it", async () => {
+    let finish = () => {};
+    const { saver, spy } = setup(() => new Promise<void>((r) => (finish = r)));
+    saver.changed();
+    await vi.advanceTimersByTimeAsync(2000);
+    saver.changed();
+    const flushed = saver.flush();
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spy).toHaveBeenCalledTimes(2);
+    finish();
+    await flushed;
+    expect(saver.state).toBe("saved");
+  });
+
+  it("closing during a save still lands a queued change", async () => {
+    let finish = () => {};
+    const { saver, spy } = setup(() => new Promise<void>((r) => (finish = r)));
+    saver.changed();
+    await vi.advanceTimersByTimeAsync(2000);
+    saver.changed();
+    saver.close();
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spy).toHaveBeenCalledTimes(2);
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(Autosaver.anyUnsaved).toBe(false);
+  });
+
+  it("keeps retrying after close until the save lands", async () => {
+    let failures = 2;
     const { saver, spy } = setup(async () => {
-      throw new Error("offline");
+      if (failures-- > 0) throw new Error("offline");
     });
     saver.changed();
-    saver.dispose();
+    saver.close();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(Autosaver.anyUnsaved).toBe(true);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(Autosaver.anyUnsaved).toBe(false);
     await vi.advanceTimersByTimeAsync(20000);
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(3);
   });
 });

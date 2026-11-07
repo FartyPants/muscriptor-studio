@@ -17,7 +17,7 @@ if /i "%~1"=="medium" set "MODEL=medium"
 if not defined MUSCRIPTOR_MUSESCORE set "MUSCRIPTOR_MUSESCORE=C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
 set "PYTHONIOENCODING=utf-8"
 
-curl.exe -s -o nul --max-time 2 "%URL%studio/api/models"
+curl.exe -sf -o nul --max-time 2 "%URL%studio/api/models"
 if not errorlevel 1 (
     echo MuScriptor Studio is already running at %URL%studio/
     start "" "%URL%studio/"

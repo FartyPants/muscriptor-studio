@@ -320,10 +320,11 @@ export class AudioEngine {
    * Replace every note, keeping the transport where it is. Anything still to
    * come plays from the new list. `stopAt` is when playback ends by itself.
    */
-  replaceNotes(notes: NoteOpts[], stopAt: number | null) {
+  replaceNotes(notes: NoteOpts[], stopAt: number | null, clicks: Click[]) {
     this.allNotes = notes.map((n) => ({ ...n }));
     this.pendingNotes = [];
     this.autoStopAt = stopAt;
+    this.clicks = clicks;
     this.seek(Tone.getTransport().seconds);
   }
 
@@ -336,11 +337,6 @@ export class AudioEngine {
     const time = this.ctx.currentTime;
     synth.noteOn(channel, pitch, NOTE_VELOCITY, { time });
     synth.noteOff(channel, pitch, { time: time + 0.25 });
-  }
-
-  setClicks(clicks: Click[]) {
-    this.clicks = clicks;
-    this.seek(Tone.getTransport().seconds);
   }
 
   setMetronome(on: boolean) {

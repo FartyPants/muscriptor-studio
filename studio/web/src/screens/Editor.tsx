@@ -51,6 +51,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const [notes, setNotes] = useState<ProjectNote[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const saverRef = useRef<Autosaver | null>(null);
+  const mounted = useRef(true);
   const [editing, setEditing] = useState(false);
   const [snap, setSnap] = useState(true);
   const [active, setActive] = useState<string | null>(null);
@@ -73,8 +74,11 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     const shown = displayNotes(store.notes, grid);
     const last = shown.reduce((end, n) => Math.max(end, n.end), 0);
     rollRef.current?.setNotes(shown);
-    audio.replaceNotes(shown, last > 0 ? last + 0.3 : null);
-    audio.setClicks(metronomeClicks(grid, Math.max(audio.duration, last)));
+    audio.replaceNotes(
+      shown,
+      last > 0 ? last + 0.3 : null,
+      metronomeClicks(grid, Math.max(audio.duration, last)),
+    );
     setNotes(store.notes);
   }
 
@@ -89,7 +93,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     );
     editor.setGrid(saved.beat_grid);
     editorRef.current = editor;
-    saverRef.current?.dispose();
+    saverRef.current?.close();
     const saver = new Autosaver(
       () => api.saveProject({ ...saved, notes: store.notes }),
       setSaveState,
@@ -109,8 +113,16 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     try {
       await api.saveProject({ ...current, status: "transcribing" });
       const outcome = await transcribe(file);
-      if (!outcome) return;
+      if (!outcome) {
+        await api.saveProject({ ...current, status: "created" });
+        return;
+      }
       const { notes, stopped } = outcome;
+      if (stopped && notes.length === 0) {
+        await api.saveProject({ ...current, status: "created" });
+        setPhase("idle");
+        return;
+      }
       let beatGrid = outcome.beatGrid;
       if (stopped) {
         setNotice("Finding the beats");
@@ -123,6 +135,9 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         notes,
         beat_grid: beatGrid,
       });
+      // Stopped, then left: the work is saved, but the audio engine and the
+      // screen now belong to someone else.
+      if (!mounted.current) return;
       showProject(saved);
       setDoc(saved);
       setPhase("ready");
@@ -134,6 +149,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
 
   useEffect(() => {
     let cancelled = false;
+    mounted.current = true;
     audio.reset();
     rollRef.current?.clear();
     (async () => {
@@ -160,11 +176,11 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     })();
     return () => {
       cancelled = true;
+      mounted.current = false;
       abort();
       audio.reset();
-      const saver = saverRef.current;
+      saverRef.current?.close();
       saverRef.current = null;
-      saver?.flush().finally(() => saver.dispose());
     };
     // `run` and `showProject` read refs and props stable for this keyed screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,9 +258,8 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   // A failed or waiting save would lose edits if the page closed now.
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
-      const saver = saverRef.current;
-      if (!saver?.hasUnsaved) return;
-      void saver.flush();
+      if (!Autosaver.anyUnsaved) return;
+      Autosaver.flushAll();
       e.preventDefault();
     };
     window.addEventListener("beforeunload", onLeave);
@@ -312,7 +327,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
 
       {phase === "ready" && doc?.status === "partial" && (
         <p className="px-4 pb-3 text-sm text-muted">
-          Stopped early. This project holds {doc.notes.length.toLocaleString()} notes, up to where
+          Stopped early. This project holds {notes.length.toLocaleString()} notes, up to where
           transcription stopped.
         </p>
       )}

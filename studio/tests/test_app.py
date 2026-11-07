@@ -214,3 +214,44 @@ def test_beat_grid_is_null_when_none_is_found(weights, site, tmp_path):
     assert r.json() == {"beat_grid": None}
     missing = c.post(f"/studio/api/projects/{'0' * 32}/beat-grid", json={"onsets": []})
     assert missing.status_code == 404
+
+
+def test_stopped_with_no_notes_still_gets_a_usable_delay(weights, site, tmp_path):
+    grid = BeatGrid(bpm=120.0, beats_per_bar=4, first_downbeat=0.5, beats=np.arange(0.5, 60, 0.5))
+    holder = SwitchableModel(
+        loader=lambda s, d: None, free=lambda: None, exporter=GridExporter(grid), weights=weights
+    )
+    c = TestClient(create_studio_app(holder, site[0], site[1], data_dir=tmp_path))
+    pid = c.post("/studio/api/projects", files={"file": ("a.wav", wav_bytes())}).json()["id"]
+    got = c.post(f"/studio/api/projects/{pid}/beat-grid", json={"onsets": []}).json()["beat_grid"]
+    assert got["onset_delay"] == 0.0
+
+
+def test_a_disconnect_clears_busy(weights, exporter, site):
+    h = holder_for(weights, exporter)
+    h.load("large")
+    config = uvicorn.Config(
+        create_studio_app(h, site[0], site[1]), port=18732, log_level="warning"
+    )
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    while not server.started:
+        time.sleep(0.02)
+    try:
+        with httpx.stream(
+            "POST",
+            "http://127.0.0.1:18732/transcribe",
+            files={"file": ("a.wav", wav_bytes())},
+            timeout=10,
+        ) as r:
+            next(r.iter_raw())
+            assert h.busy
+        for _ in range(150):
+            if not h.busy:
+                break
+            time.sleep(0.02)
+        assert not h.busy
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)

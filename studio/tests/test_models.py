@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 import pytest
@@ -103,14 +104,39 @@ def test_switch_is_refused_during_a_request(weights):
     assert h.active == "medium"
 
 
-def test_switch_is_refused_while_a_generator_is_open(weights):
+def test_switch_is_refused_while_a_blocking_transcription_runs(weights):
+    started = threading.Event()
+    release = threading.Event()
+
+    class Blocking(FakeModel):
+        def transcribe_and_postprocess(self, *args, **kwargs):
+            started.set()
+            release.wait(5)
+            return self.size
+
+    h = SwitchableModel(
+        loader=lambda size, device: Blocking(size),
+        free=lambda: None,
+        exporter=FakeExporter(),
+        weights=weights,
+    )
+    h.load("large")
+    run = threading.Thread(target=h.transcribe_and_postprocess)
+    run.start()
+    started.wait(5)
+    with pytest.raises(ModelBusyError):
+        h.load("medium")
+    release.set()
+    run.join(5)
+    h.load("medium")
+    assert h.active == "medium"
+
+
+def test_an_abandoned_generator_does_not_block_a_switch(weights):
     h = make(weights)
     h.load("large")
     run = h.transcribe()
     next(run)
-    with pytest.raises(ModelBusyError):
-        h.load("medium")
-    run.close()
     h.load("medium")
     assert h.active == "medium"
 

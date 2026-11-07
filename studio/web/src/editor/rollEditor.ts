@@ -294,6 +294,8 @@ export class RollEditor {
   /** Handle an edit shortcut. Returns whether it was one. */
   key(e: KeyboardEvent): boolean {
     if (!this.enabled) return false;
+    // A drag's patch is built from where it started, so nothing may change first.
+    if (this.drag) return true;
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
     if (ctrl && key === "z") {
@@ -307,6 +309,11 @@ export class RollEditor {
       this.paste();
     } else if (ctrl) {
       return false;
+    } else if (e.key === "Escape") {
+      this.selected = new Set();
+      this.pushState();
+    } else if (!this.hasSelection) {
+      return false;
     } else if (e.key === "Delete" || e.key === "Backspace") {
       this.deleteSelection();
     } else if (e.key === "ArrowLeft") {
@@ -317,9 +324,6 @@ export class RollEditor {
       this.nudge(0, 1);
     } else if (e.key === "ArrowDown") {
       this.nudge(0, -1);
-    } else if (e.key === "Escape") {
-      this.selected = new Set();
-      this.pushState();
     } else {
       return false;
     }
