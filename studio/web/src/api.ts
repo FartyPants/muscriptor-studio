@@ -127,7 +127,14 @@ export const api = {
     const form = new FormData();
     form.append("midi", midi, "notes.mid");
     form.append("mode", "synth");
-    return fetch("/auralize", { method: "POST", body: form }).then(blob);
+    return fetch("/auralize", { method: "POST", body: form })
+      .then(blob)
+      .catch((e: Error) => {
+        if (/fluidsynth|WinError 2|cannot find/i.test(e.message)) {
+          throw new Error("Audio export needs FluidSynth, which isn't installed yet.");
+        }
+        throw e;
+      });
   },
 
   /** Part of the project's audio, as a file to transcribe. */
