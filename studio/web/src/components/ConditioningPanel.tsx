@@ -101,7 +101,7 @@ export function ConditioningPanel(props: {
   }
 
   return (
-    <section className="card col-span-full px-5 pb-5 pt-4 animate-rise [animation-delay:0.24s]">
+    <section className="card relative z-30 col-span-full px-5 pb-5 pt-4 animate-rise [animation-delay:0.24s]">
       <div className="mb-3.5 flex items-start gap-3">
         <div className="flex flex-col gap-2">
           <h2 className="m-0 text-lg font-semibold">
@@ -168,7 +168,7 @@ export function ConditioningPanel(props: {
 
         {open && suggestions.length > 0 && (
           <ul
-            className="absolute inset-x-0 top-[calc(100%+5px)] z-20 m-0 max-h-60 list-none overflow-y-auto rounded-lg border border-line-strong bg-surface-2 p-1 shadow-pop"
+            className="absolute inset-x-0 top-[calc(100%+5px)] z-20 m-0 max-h-60 list-none overflow-y-auto rounded-lg border p-1 border-line-strong bg-[#1c1c1c] shadow-pop"
             role="listbox"
           >
             {suggestions.map((name, i) => (
