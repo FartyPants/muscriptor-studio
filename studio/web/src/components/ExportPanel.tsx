@@ -74,15 +74,17 @@ export function ExportPanel(props: {
   names: string[];
   chosenKey: ChosenKey | null;
   hasChords: boolean;
+  /** Shared with the roll, so bars match everywhere. */
+  meter: number;
+  onMeter: (meter: number) => void;
   onClose: () => void;
 }) {
-  const { doc, notes, names, chosenKey, hasChords, onClose } = props;
+  const { doc, notes, names, chosenKey, hasChords, meter, onMeter, onClose } = props;
   const grid = doc.beat_grid;
   const followable = (grid?.beats?.length ?? 0) >= 2;
   const [tempoMap, setTempoMap] = useState(followable && grid?.steady === false);
   const [quantize, setQuantize] = useState(false);
   const [beatScale, setBeatScale] = useState(1);
-  const [meter, setMeter] = useState(grid?.beats_per_bar ?? 4);
   const [rhythm, setRhythm] = useState(0);
   const [chords, setChords] = useState(true);
   const [page, setPage] = useState<"a4" | "letter">("a4");
@@ -201,7 +203,7 @@ export function ExportPanel(props: {
                 value: n,
                 label: n === grid.beats_per_bar ? `${n}/4 (detected)` : `${n}/4`,
               }))}
-              onChange={setMeter}
+              onChange={onMeter}
             />
             <Select label="Rhythm grid" value={rhythm} options={GRIDS} onChange={setRhythm} />
           </div>

@@ -52,6 +52,8 @@ export type ProjectDoc = {
   hints?: string[];
   /** The key set by hand. Unset or null follows detection. */
   key?: ChosenKey | null;
+  /** Beats per bar set by hand. Unset or null follows detection. */
+  meter?: number | null;
   audio_name: string;
   created: number;
   updated: number;

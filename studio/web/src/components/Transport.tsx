@@ -48,6 +48,31 @@ function KeyMenu(props: {
   );
 }
 
+const METERS = [2, 3, 4, 5, 6, 7, 8];
+const AUTO_METER = 0;
+
+function MeterMenu(props: {
+  detected: number | null;
+  chosen: number | null;
+  onChoose: (meter: number | null) => void;
+}) {
+  const { detected, chosen, onChoose } = props;
+  const auto = detected ? `Auto (${detected}/4)` : "Auto (4/4, assumed)";
+  return (
+    <Select
+      label="Meter"
+      hideLabel
+      className="w-40"
+      value={chosen ?? AUTO_METER}
+      options={[
+        { value: AUTO_METER, label: auto },
+        ...METERS.map((n) => ({ value: n, label: `${n}/4` })),
+      ]}
+      onChange={(value) => onChoose(value === AUTO_METER ? null : value)}
+    />
+  );
+}
+
 function Detail({ name, value, why }: { name: string; value: string; why: string }) {
   return (
     <div>
@@ -60,8 +85,20 @@ function Detail({ name, value, why }: { name: string; value: string; why: string
   );
 }
 
-function AnalysisDetails(props: { analysis: Analysis | null; chosen: ChosenKey | null; grid: BeatGrid | null }) {
-  const { analysis, chosen, grid } = props;
+function meterReason(chosen: number | null, detected: number | null): string {
+  if (chosen) return `Set by you. ${detected ? `Detected: ${detected}/4.` : "None was detected."} The notes don't move.`;
+  if (detected) return "Estimated from beat grid analysis.";
+  return "Not detected, so bars of 4 are assumed. Choose the meter beside the key.";
+}
+
+function AnalysisDetails(props: {
+  analysis: Analysis | null;
+  chosen: ChosenKey | null;
+  grid: BeatGrid | null;
+  chosenMeter: number | null;
+  detectedMeter: number | null;
+}) {
+  const { analysis, chosen, grid, chosenMeter, detectedMeter } = props;
   return (
     <Popover
       align="right"
@@ -94,8 +131,8 @@ function AnalysisDetails(props: { analysis: Analysis | null; chosen: ChosenKey |
         />
         <Detail
           name="Meter"
-          value={grid?.beats_per_bar ? `${grid.beats_per_bar}/4` : "Unknown"}
-          why="Estimated from beat grid analysis. You can correct it in Export."
+          value={grid ? `${grid.beats_per_bar ?? 4}/4` : "Unknown"}
+          why={meterReason(chosenMeter, detectedMeter)}
         />
       </div>
     </Popover>
@@ -104,7 +141,11 @@ function AnalysisDetails(props: { analysis: Analysis | null; chosen: ChosenKey |
 
 export function Transport(props: {
   audio: AudioEngine;
+  /** With the chosen meter applied. */
   grid: BeatGrid | null;
+  detectedMeter: number | null;
+  chosenMeter: number | null;
+  onChooseMeter: (meter: number | null) => void;
   analysis: Analysis | null;
   chosenKey: ChosenKey | null;
   onChooseKey: (key: ChosenKey | null) => void;
@@ -112,7 +153,8 @@ export function Transport(props: {
   onFollow: (on: boolean) => void;
   onRestart: () => void;
 }) {
-  const { audio, grid, analysis, chosenKey, onChooseKey, following, onFollow, onRestart } = props;
+  const { audio, grid, detectedMeter, chosenMeter, onChooseMeter } = props;
+  const { analysis, chosenKey, onChooseKey, following, onFollow, onRestart } = props;
   const [playing, setPlaying] = useState(false);
   const [metronome, setMetronome] = useState(false);
   const [clickLevel, setClickLevel] = useState(0.5);
@@ -201,9 +243,24 @@ export function Transport(props: {
             <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />
           </div>
         )}
+        {grid && (
+          <div
+            className="flex items-center gap-1.5"
+            title="Sets the bars on the timeline, the metronome and the sheet music. Notes don't move."
+          >
+            <span className="text-[13px] text-muted">Meter</span>
+            <MeterMenu detected={detectedMeter} chosen={chosenMeter} onChoose={onChooseMeter} />
+          </div>
+        )}
         {grid && <span className="tabular text-[13px] text-content">{Math.round(grid.bpm)} BPM</span>}
         {(grid || analysis) && (
-          <AnalysisDetails analysis={analysis} chosen={chosenKey} grid={grid} />
+          <AnalysisDetails
+            analysis={analysis}
+            chosen={chosenKey}
+            grid={grid}
+            chosenMeter={chosenMeter}
+            detectedMeter={detectedMeter}
+          />
         )}
       </div>
 
