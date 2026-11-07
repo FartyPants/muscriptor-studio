@@ -7,6 +7,7 @@ import { PianoRollCanvas } from "../components/PianoRollCanvas";
 import { EditControls, RollToolbar } from "../components/RollToolbar";
 import { TopBar } from "../components/TopBar";
 import { Transport } from "../components/Transport";
+import { Autosaver, type SaveState } from "../editor/autosave";
 import { NoteStore } from "../editor/noteStore";
 import { RollEditor } from "../editor/rollEditor";
 import { DEFAULT_CLEANUP, exportMidi, NO_OVERRIDES, saveBlob } from "../export";
@@ -48,6 +49,8 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const storeRef = useRef<NoteStore | null>(null);
   const editorRef = useRef<RollEditor | null>(null);
   const [notes, setNotes] = useState<ProjectNote[]>([]);
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const saverRef = useRef<Autosaver | null>(null);
   const [editing, setEditing] = useState(false);
   const [snap, setSnap] = useState(true);
   const [active, setActive] = useState<string | null>(null);
@@ -86,9 +89,16 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     );
     editor.setGrid(saved.beat_grid);
     editorRef.current = editor;
+    saverRef.current?.dispose();
+    const saver = new Autosaver(
+      () => api.saveProject({ ...saved, notes: store.notes }),
+      setSaveState,
+    );
+    saverRef.current = saver;
     store.subscribe(() => {
       syncNotes(store, saved.beat_grid);
       editor.rebuild();
+      saver.changed();
     });
   }
 
@@ -152,6 +162,9 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
       cancelled = true;
       abort();
       audio.reset();
+      const saver = saverRef.current;
+      saverRef.current = null;
+      saver?.flush().finally(() => saver.dispose());
     };
     // `run` and `showProject` read refs and props stable for this keyed screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,6 +239,18 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     }
   }, [doc]);
 
+  // A failed or waiting save would lose edits if the page closed now.
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      const saver = saverRef.current;
+      if (!saver?.hasUnsaved) return;
+      void saver.flush();
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -249,6 +274,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
         title={doc?.name ?? "Loading"}
         model={doc?.model ?? null}
         exporting={exporting}
+        saveState={phase === "ready" ? saveState : null}
         onExport={phase === "ready" ? exportCurrent : null}
       />
       <Transport
