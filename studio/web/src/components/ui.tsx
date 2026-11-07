@@ -48,6 +48,26 @@ export function IconButton({
   );
 }
 
+/** On or off, with a word beside its icon because the icon alone isn't enough. */
+export function Toggle({
+  pressed,
+  className,
+  ...rest
+}: { pressed: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      {...rest}
+      className={clsx(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[13px] font-medium transition-colors disabled:cursor-default disabled:opacity-40",
+        pressed ? "bg-accent-soft text-accent" : "text-muted hover:bg-raised hover:text-content",
+        className,
+      )}
+    />
+  );
+}
+
 export function Segmented<T extends string | number>(props: {
   label: string;
   value: T;

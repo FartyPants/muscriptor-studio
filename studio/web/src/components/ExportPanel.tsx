@@ -3,7 +3,7 @@ import { Download, FileMusic, FileText, LoaderCircle, Music4 } from "lucide-reac
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
-import { label } from "../instruments";
+import { displayName } from "../instruments";
 import { renderAudio } from "../renderAudio";
 import { Button, Checkbox, Segmented, Select, SidePanel } from "./ui";
 
@@ -57,14 +57,16 @@ function FormatButton(props: {
   );
 }
 
-const fileLabel = (name: string) =>
-  name === "full_score.pdf"
-    ? "Full score"
-    : name
-        .replace(/^\d+_/, "")
-        .replace(/\.pdf$/, "")
-        .replace(/_tab$/, " tablature")
-        .replace(/_/g, " ");
+/** A PDF's name: file names also carry MuseScore's own name for the instrument. */
+function fileLabel(file: string, instruments: string[]): string {
+  if (file === "full_score.pdf") return "Full score";
+  const stem = file.replace(/^\d+_/, "").replace(/\.pdf$/, "");
+  const tab = stem.endsWith("_tab");
+  const part = tab ? stem.slice(0, -4) : stem;
+  const known = instruments.find((name) => part.endsWith(name));
+  const text = known ? displayName(known) : part.replace(/_/g, " ");
+  return tab ? `${text} tablature` : text;
+}
 
 export function ExportPanel(props: {
   doc: ProjectDoc;
@@ -152,15 +154,18 @@ export function ExportPanel(props: {
       {grid ? (
         <Section title="Timing">
           {followable && (
-            <Segmented
-              label="Bar lines"
-              value={tempoMap ? "performance" : "fixed"}
-              options={[
-                { value: "performance", label: "Follow the performance" },
-                { value: "fixed", label: "One fixed tempo" },
-              ]}
-              onChange={(v) => setTempoMap(v === "performance")}
-            />
+            <div>
+              <p className="mb-1 text-[13px] font-medium text-content">Bar lines</p>
+              <Segmented
+                label="Bar lines"
+                value={tempoMap ? "performance" : "fixed"}
+                options={[
+                  { value: "performance", label: "Follow the performance" },
+                  { value: "fixed", label: "One fixed tempo" },
+                ]}
+                onChange={(v) => setTempoMap(v === "performance")}
+              />
+            </div>
           )}
           <Checkbox
             label="Quantize"
@@ -205,7 +210,7 @@ export function ExportPanel(props: {
           {names.map((name) => (
             <Checkbox
               key={name}
-              label={label(name).replace(/^./, (c) => c.toUpperCase())}
+              label={displayName(name)}
               checked={included.has(name)}
               onChange={(on) => {
                 const next = new Set(included);
@@ -338,10 +343,10 @@ export function ExportPanel(props: {
                     onClick={() =>
                       saveBlob(new Blob([file.bytes], { type: "application/pdf" }), `${stem} - ${file.name}`)
                     }
-                    className="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-[13px] text-content capitalize hover:bg-raised"
+                    className="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-[13px] text-content hover:bg-raised"
                   >
                     <FileMusic size={14} className="shrink-0 text-muted" />
-                    <span className="min-w-0 flex-1 truncate">{fileLabel(file.name)}</span>
+                    <span className="min-w-0 flex-1 truncate">{fileLabel(file.name, names)}</span>
                     <Download size={14} className="shrink-0 text-muted" />
                   </button>
                 </li>

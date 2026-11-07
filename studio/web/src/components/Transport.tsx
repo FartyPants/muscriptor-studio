@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Analysis, ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
 import type { BeatGrid } from "../pianoroll";
-import { IconButton, Popover, Select } from "./ui";
+import { IconButton, Popover, Select, Toggle } from "./ui";
 
 const fmt = (s: number) => {
   const t = Math.max(0, s);
@@ -80,7 +80,7 @@ function AnalysisDetails(props: { analysis: Analysis | null; chosen: ChosenKey |
           why={
             chosen
               ? `Set by you. Detected: ${analysis?.detected?.label ?? "unknown"}.`
-              : "Estimated from the transcribed notes."
+              : "Estimated from the transcribed notes. Used for chord names, scale lock and sheet music. Choosing another key doesn't transpose the notes."
           }
         />
         <Detail
@@ -152,9 +152,10 @@ export function Transport(props: {
         <IconButton label="Back to start" onClick={onRestart}>
           <SkipBack size={15} />
         </IconButton>
-        <IconButton label="Follow playhead" pressed={following} onClick={() => onFollow(!following)}>
+        <Toggle title="Keep the playhead in view" pressed={following} onClick={() => onFollow(!following)}>
           <Crosshair size={15} />
-        </IconButton>
+          Follow
+        </Toggle>
       </div>
 
       <span className="tabular text-[15px] font-medium text-content">
@@ -166,14 +167,15 @@ export function Transport(props: {
       </span>
 
       <div className="flex items-center gap-1">
-        <IconButton
-          label="Metronome"
+        <Toggle
+          title={grid ? "Click on every beat" : "The metronome needs a beat grid"}
           pressed={metronome}
           disabled={!grid}
           onClick={() => setMetronome(!metronome)}
         >
           <Timer size={15} />
-        </IconButton>
+          Metronome
+        </Toggle>
         {metronome && (
           <input
             aria-label="Metronome volume"
@@ -190,7 +192,15 @@ export function Transport(props: {
       </div>
 
       <div className="flex items-center gap-2">
-        {analysis && <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />}
+        {analysis && (
+          <div
+            className="flex items-center gap-1.5"
+            title="Used for chord names, scale lock and sheet music. Notes are not transposed."
+          >
+            <span className="text-[13px] text-muted">Key</span>
+            <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />
+          </div>
+        )}
         {grid && <span className="tabular text-[13px] text-content">{Math.round(grid.bpm)} BPM</span>}
         {(grid || analysis) && (
           <AnalysisDetails analysis={analysis} chosen={chosenKey} grid={grid} />

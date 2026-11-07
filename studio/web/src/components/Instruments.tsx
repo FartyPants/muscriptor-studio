@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { Volume2, VolumeX } from "lucide-react";
 import { useMemo } from "react";
 import type { ProjectNote } from "../api";
-import { label } from "../instruments";
+import { displayName, label } from "../instruments";
 import { instrumentColor } from "../pianoroll";
 import { IconButton } from "./ui";
 
@@ -49,6 +49,9 @@ export function InstrumentPanel(props: {
     <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel">
       <h2 className="px-3 pt-3 pb-1 text-[13px] font-semibold text-content">Instruments</h2>
       {active && <p className="px-3 pb-1 text-xs text-muted">Click an instrument to edit its notes.</p>}
+      {rows.length === 0 && (
+        <p className="px-3 text-xs text-muted">Instruments appear here after transcription.</p>
+      )}
       <div className="px-1.5 pb-2">
         {rows.map(({ name, count, points }) => {
           const color = instrumentColor(name);
@@ -68,8 +71,8 @@ export function InstrumentPanel(props: {
               <div className="flex items-center gap-2">
                 <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: color }} />
                 <div className="min-w-0 flex-1">
-                  <div className={clsx("truncate text-[13px] font-medium capitalize", silent ? "text-faint" : "text-content")}>
-                    {label(name)}
+                  <div className={clsx("truncate text-[13px] font-medium", silent ? "text-faint" : "text-content")}>
+                    {displayName(name)}
                   </div>
                   {count > 0 && <div className="tabular text-xs text-muted">{count.toLocaleString()} notes</div>}
                 </div>

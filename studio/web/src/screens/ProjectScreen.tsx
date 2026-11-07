@@ -533,7 +533,10 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
       {phase === "idle" && doc && fileRef.current && (
         <Modal
           title="Which instruments play in this song?"
-          subtitle="Transcription listens only for the instruments you list. Leave it empty to let the model decide."
+          subtitle="Transcription listens only for the instruments you list. Not sure? Detect them, or let the model decide."
+          onClose={() => {
+            window.location.hash = "#/new";
+          }}
         >
           <InstrumentChooser
             doc={doc}
@@ -544,18 +547,22 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
             }}
             renderActions={({ selected, busy }) => (
               <div className="flex justify-end gap-2">
-                <Button disabled={busy} onClick={() => run(doc, fileRef.current!, [])}>
+                <Button
+                  variant={selected.length ? "secondary" : "primary"}
+                  disabled={busy}
+                  onClick={() => run(doc, fileRef.current!, [])}
+                >
                   Let the model decide
                 </Button>
-                <Button
-                  variant="primary"
-                  disabled={busy || selected.length === 0}
-                  onClick={() => run(doc, fileRef.current!, selected)}
-                >
-                  {selected.length
-                    ? `Transcribe with ${selected.length} instrument${selected.length === 1 ? "" : "s"}`
-                    : "Transcribe"}
-                </Button>
+                {selected.length > 0 && (
+                  <Button
+                    variant="primary"
+                    disabled={busy}
+                    onClick={() => run(doc, fileRef.current!, selected)}
+                  >
+                    Transcribe with {selected.length} instrument{selected.length === 1 ? "" : "s"}
+                  </Button>
+                )}
               </div>
             )}
           />

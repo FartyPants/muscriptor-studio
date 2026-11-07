@@ -41,7 +41,7 @@ export function TopBar(props: {
         <ArrowLeft size={17} />
       </a>
       <h1 className="min-w-0 truncate text-[15px] font-semibold text-content">{title}</h1>
-      {model && <span className="shrink-0 text-xs text-faint first-letter:uppercase">{model} model</span>}
+      {model && <span className="shrink-0 text-xs text-muted first-letter:uppercase">{model} model</span>}
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {saveState && <SaveBadge state={saveState} />}
         <a

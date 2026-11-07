@@ -200,3 +200,9 @@ export function scoreInstrument(name: string, query: string): number {
   }
   return 0;
 }
+
+/** An instrument's name for display, in sentence case. */
+export function displayName(name: string): string {
+  const text = label(name);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}

@@ -1,7 +1,7 @@
 import type { ModelInfo, ModelSize } from "../api";
 import { Segmented } from "./ui";
 
-const LABELS: Record<ModelSize, string> = { medium: "Medium", large: "Large" };
+const LABELS: Record<ModelSize, string> = { medium: "Medium (recommended)", large: "Large" };
 const HINTS: Record<ModelSize, string> = {
   medium: "Fast, and accurate when the instruments are listed.",
   large: "Slower, and needs more GPU memory. Best on short songs.",

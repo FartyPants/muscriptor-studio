@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { label, scoreInstrument } from "../instruments";
+import { displayName, scoreInstrument } from "../instruments";
 
 /** Type to find an instrument, and pick from the list. Chosen ones become chips. */
 export function InstrumentPicker(props: {
@@ -58,13 +58,13 @@ export function InstrumentPicker(props: {
         {[...selected].map((name) => (
           <span
             key={name}
-            className="inline-flex h-7 items-center gap-1 rounded-[5px] bg-raised pr-1 pl-2.5 text-[13px] text-content capitalize"
+            className="inline-flex h-7 items-center gap-1 rounded-[5px] bg-raised pr-1 pl-2.5 text-[13px] text-content"
           >
-            {label(name)}
+            {displayName(name)}
             <button
               type="button"
-              aria-label={`Remove ${label(name)}`}
-              title={`Remove ${label(name)}`}
+              aria-label={`Remove ${displayName(name)}`}
+              title={`Remove ${displayName(name)}`}
               onClick={() => remove(name)}
               className="flex size-5 items-center justify-center rounded text-muted hover:bg-hover hover:text-content"
             >
@@ -119,11 +119,11 @@ export function InstrumentPicker(props: {
                 add(name);
               }}
               className={clsx(
-                "cursor-pointer rounded px-2.5 py-1.5 text-[13px] capitalize",
+                "cursor-pointer rounded px-2.5 py-1.5 text-[13px]",
                 i === highlight ? "bg-hover text-content" : "text-muted",
               )}
             >
-              {label(name)}
+              {displayName(name)}
             </li>
           ))}
         </ul>

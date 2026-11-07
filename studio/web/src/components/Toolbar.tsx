@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { NoteStore } from "../editor/noteStore";
 import type { RollEditor } from "../editor/rollEditor";
 import type { GridDisplay, PianoRoll } from "../pianoroll";
-import { Checkbox, IconButton, Popover } from "./ui";
+import { Checkbox, IconButton, Popover, Toggle } from "./ui";
 
 const DISPLAY: { key: keyof GridDisplay; label: string; hint: string }[] = [
   { key: "secondMarkers", label: "Time lines", hint: "Vertical lines along the timeline." },
@@ -44,19 +44,10 @@ export function EditControls(props: {
   const { onEditing, onSnap, onScaleLock } = props;
   return (
     <>
-      <button
-        type="button"
-        aria-pressed={editing}
-        onClick={() => onEditing(!editing)}
-        className={
-          editing
-            ? "inline-flex h-8 items-center gap-1.5 rounded-control bg-accent-soft px-2.5 text-[13px] font-medium text-accent"
-            : "inline-flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] font-medium text-muted hover:bg-raised hover:text-content"
-        }
-      >
+      <Toggle pressed={editing} onClick={() => onEditing(!editing)}>
         <Pencil size={14} />
-        Edit
-      </button>
+        Edit notes
+      </Toggle>
       {editing && (
         <>
           <span aria-hidden="true" className="mx-1 h-5 w-px bg-line" />
@@ -74,22 +65,24 @@ export function EditControls(props: {
             <Trash2 size={15} />
           </IconButton>
           <span aria-hidden="true" className="mx-1 h-5 w-px bg-line" />
-          <IconButton
-            label={snapAvailable ? "Snap to beats. Hold Alt while dragging to ignore it." : "Snap needs a beat grid"}
+          <Toggle
+            title={snapAvailable ? "Moved notes land on the beat grid. Hold Alt while dragging to ignore it." : "Snap needs a beat grid"}
             pressed={snap && snapAvailable}
             disabled={!snapAvailable}
             onClick={() => onSnap(!snap)}
           >
             <Magnet size={15} />
-          </IconButton>
-          <IconButton
-            label={scaleAvailable ? "Keep moved notes in the key" : "Scale lock needs a key"}
+            Snap
+          </Toggle>
+          <Toggle
+            title={scaleAvailable ? "Moved and added notes land on the key's scale" : "This needs a key"}
             pressed={scaleLock && scaleAvailable}
             disabled={!scaleAvailable}
             onClick={() => onScaleLock(!scaleLock)}
           >
             <Music2 size={15} />
-          </IconButton>
+            Stay in key
+          </Toggle>
           <span role="status" aria-label="Selection" className="tabular ml-2 text-xs text-muted">
             {editor?.status}
           </span>

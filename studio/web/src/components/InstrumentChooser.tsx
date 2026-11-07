@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type InstrumentSuggestion, type ProjectDoc } from "../api";
-import { label } from "../instruments";
+import { displayName } from "../instruments";
 import { InstrumentPicker } from "./InstrumentPicker";
 import { Button } from "./ui";
 
@@ -81,7 +81,7 @@ export function InstrumentChooser(props: {
           </div>
           <span className="text-xs text-muted">{activity}</span>
           <Button variant="quiet" onClick={() => running.current?.abort()}>
-            Skip
+            Stop detecting
           </Button>
         </div>
       ) : (
@@ -103,10 +103,10 @@ export function InstrumentChooser(props: {
                 {suggestion.instruments.map((name) => (
                   <Button
                     key={name}
-                    className="!h-7 capitalize"
+                    className="!h-7"
                     onClick={() => change(new Set([...selected, name]))}
                   >
-                    + {label(name)}
+                    + {displayName(name)}
                   </Button>
                 ))}
               </div>

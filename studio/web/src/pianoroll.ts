@@ -22,6 +22,9 @@ export const DEFAULT_DISPLAY: GridDisplay = {
   chords: true,
 };
 
+/** A chord name with real sharp and flat signs. */
+const prettyChord = (name: string) => name.replace(/#/g, "♯").replace(/([A-G])b/g, "$1♭");
+
 /** A named chord, in display time. */
 export type ChordSpan = { start: number; end: number; root: string; quality: string; label: string };
 
@@ -871,7 +874,7 @@ export class PianoRoll {
     }
 
     if (this.range) {
-      ctx.fillStyle = "rgba(143, 168, 255, 0.1)";
+      ctx.fillStyle = "rgba(143, 168, 255, 0.16)";
       const from = xAt(this.range.start);
       ctx.fillRect(from, 0, xAt(this.range.end) - from, H);
     }
@@ -1048,8 +1051,8 @@ export class PianoRoll {
       // Keep the name on screen when its chord began to the left of the view.
       const textX = Math.max(from, KEY_WIDTH) + 6;
       const room = to - textX - 4;
-      const short = chord.root + chord.quality;
-      const text = [chord.label, short, chord.root].find((t) => ctx.measureText(t).width <= room);
+      const names = [chord.label, chord.root + chord.quality, chord.root].map(prettyChord);
+      const text = names.find((t) => ctx.measureText(t).width <= room);
       if (text) {
         ctx.fillStyle = current ? "#e8eaf0" : "#98a1b3";
         ctx.fillText(text, textX, y);
