@@ -1,0 +1,5 @@
+data/
+web_dist/
+web/node_modules/
+__pycache__/
+.pytest_cache/
