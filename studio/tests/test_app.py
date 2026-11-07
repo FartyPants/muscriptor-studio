@@ -255,3 +255,67 @@ def test_a_disconnect_clears_busy(weights, exporter, site):
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+class TestAutoload:
+    """The original interface has no picker, so it gets a model when it asks."""
+
+    def client(self, holder, site, tmp_path):
+        return TestClient(
+            create_studio_app(holder, site[0], site[1], data_dir=tmp_path, autoload="large")
+        )
+
+    def test_nothing_loads_at_startup(self, weights, exporter, site, tmp_path):
+        loaded = []
+        holder = SwitchableModel(
+            loader=lambda size, device: loaded.append(size),
+            free=lambda: None,
+            exporter=exporter,
+            weights=weights,
+        )
+        c = self.client(holder, site, tmp_path)
+        assert c.get("/studio/api/models").json()["active"] is None
+        assert c.get("/studio/").status_code == 200
+        assert loaded == []
+
+    def test_a_transcribe_from_the_original_ui_loads_the_model(self, weights, exporter, site, tmp_path):
+        holder = holder_for(weights, exporter)
+        SlowModel.gap, gap = 0, SlowModel.gap
+        try:
+            r = self.client(holder, site, tmp_path).post(
+                "/transcribe", files={"file": ("a.wav", wav_bytes())}
+            )
+        finally:
+            SlowModel.gap = gap
+        assert r.status_code == 200
+        assert holder.active == "large"
+        assert not holder.busy
+
+    def test_a_model_chosen_in_studio_is_kept(self, weights, exporter, site, tmp_path):
+        holder = holder_for(weights, exporter)
+        c = self.client(holder, site, tmp_path)
+        c.post("/studio/api/model", json={"size": "medium"})
+        SlowModel.gap, gap = 0, SlowModel.gap
+        try:
+            c.post("/transcribe", files={"file": ("a.wav", wav_bytes())})
+        finally:
+            SlowModel.gap = gap
+        assert holder.active == "medium"
+
+    def test_missing_weights_are_reported(self, weights, exporter, site, tmp_path):
+        weights["large"].unlink()
+        holder = holder_for(weights, exporter)
+        r = self.client(holder, site, tmp_path).post(
+            "/transcribe", files={"file": ("a.wav", wav_bytes())}
+        )
+        assert r.status_code == 503
+        assert "no weights" in r.json()["detail"]
+        assert not holder.busy
+
+    def test_instrument_detection_does_not_autoload(self, weights, exporter, site, tmp_path):
+        holder = holder_for(weights, exporter)
+        c = self.client(holder, site, tmp_path)
+        pid = c.post("/studio/api/projects", files={"file": ("a.wav", wav_bytes())}).json()["id"]
+        r = c.post(f"/studio/api/projects/{pid}/detect-instruments")
+        assert r.status_code == 503
+        assert holder.active is None

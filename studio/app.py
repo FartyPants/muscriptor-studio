@@ -43,9 +43,10 @@ class TranscribeGuard:
     would hold back the `/transcribe` event feed.
     """
 
-    def __init__(self, app, holder: SwitchableModel) -> None:
+    def __init__(self, app, holder: SwitchableModel, autoload: str | None = None) -> None:
         self.app = app
         self.holder = holder
+        self.autoload = autoload
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http" or scope["method"] != "POST":
@@ -59,6 +60,12 @@ class TranscribeGuard:
             await self.app(scope, receive, send)
             return
         refused = enter()
+        if refused == "no model loaded" and self.autoload and scope["path"] in TRANSCRIBE_PATHS:
+            try:
+                await asyncio.to_thread(self.holder.load, self.autoload)
+                refused = enter()
+            except (ModelBusyError, ModelLoadError, ModelMissingError) as e:
+                refused = str(e)
         if refused is not None:
             body = json.dumps({"detail": refused}).encode()
             await send(
@@ -115,11 +122,12 @@ def create_studio_app(
     original_web: Path | None = ORIGINAL_WEB,
     studio_web: Path | None = None,
     data_dir: Path = DATA_DIR,
+    autoload: str | None = None,
 ) -> FastAPI:
     # web_dir=None: upstream mounts "/" last, which would swallow anything
     # added after it. It is mounted below instead, once Studio's routes exist.
     app = create_app(holder, web_dir=None)
-    app.add_middleware(TranscribeGuard, holder=holder)
+    app.add_middleware(TranscribeGuard, holder=holder, autoload=autoload)
 
     api = APIRouter(prefix="/studio/api")
     store = ProjectStore(data_dir)

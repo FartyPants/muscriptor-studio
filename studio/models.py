@@ -22,6 +22,11 @@ WEIGHTS: dict[str, Path] = {
 }
 
 
+# The original interface has no model picker, so it gets this one when it needs
+# one. Studio always chooses first.
+ORIGINAL_UI_MODEL = "large"
+
+
 class ModelBusyError(RuntimeError):
     """A transcription is running, or another switch is in progress."""
 
