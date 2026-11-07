@@ -385,17 +385,39 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
       if (target.closest("input, textarea, select")) return;
       // The roll is behind an open dialog, so its keys are too.
       if (document.querySelector('[role="dialog"]')) return;
-      if (editorRef.current?.key(e)) {
-        e.preventDefault();
-        return;
-      }
-      if (e.code !== "Space" || target.closest("button")) return;
+      if (editorRef.current?.key(e)) e.preventDefault();
+    };
+    // Space is the transport's, so it can't press whatever was clicked last. It
+    // runs first, in the capture phase. Three cases keep Space's usual meaning:
+    // typing, a dialog, and a control reached with Tab, for keyboard users.
+    const onSpace = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const focused = document.activeElement as HTMLElement | null;
+      if ((e.target as HTMLElement).closest('input:not([type="range"]):not([type="checkbox"]), textarea')) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (focused && focused !== document.body && focused.matches(":focus-visible")) return;
       e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      focused?.blur();
       if (audio.state === "started") audio.pause();
       else audio.play();
     };
+    // A clicked control gives focus back, so the keyboard keeps working the roll.
+    const onRelease = () => {
+      const focused = document.activeElement as HTMLElement | null;
+      if (!focused?.matches('button, input[type="range"], input[type="checkbox"]')) return;
+      if (focused.closest('[role="dialog"]') || focused.matches(":focus-visible")) return;
+      focused.blur();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onSpace, true);
+    window.addEventListener("pointerup", onRelease);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onSpace, true);
+      window.removeEventListener("pointerup", onRelease);
+    };
   }, [audio]);
 
   // Stay in key shows the key on the pitch rows, whichever key is in use.
