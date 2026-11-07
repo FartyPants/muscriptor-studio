@@ -22,11 +22,11 @@ from pydantic import BaseModel, Field
 
 from muscriptor.server import ExportRequest, create_app, export_events
 from muscriptor.utils.beats import BeatGrid
-from muscriptor.utils.midi import ExportOptions
+from muscriptor.utils.midi import ExportOptions, Timeline, nearest, resolve_grid, timeline_for
 from muscriptor.utils.sheets import MuseScoreError, MuseScoreNotFoundError
 from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
 from studio.analysis import Key, analyze
-from studio.engrave import write_musicxml, write_score
+from studio.engrave import score_measures, write_musicxml, write_score
 from studio.instruments import scan_instruments
 from studio.models import (
     ModelBusyError,
@@ -222,7 +222,7 @@ def create_studio_app(
         chosen = body.key.as_key() if body.key else None
         return await asyncio.to_thread(analyze, shown, body.beat_grid, chosen)
 
-    def score_midi(body: ScoreRequest) -> bytes:
+    def score_inputs(body: ScoreRequest) -> tuple[BeatGrid | None, ExportOptions]:
         grid = None
         if body.beat_grid is not None:
             fields = body.beat_grid.model_dump()
@@ -235,9 +235,37 @@ def create_studio_app(
         options["quantize"] = grid is not None
         if grid is not None and not options["subdivision"] and not grid.beat_subdivision:
             options["subdivision"] = SCORE_SUBDIVISION
+        return grid, ExportOptions(**options)
+
+    def score_midi(body: ScoreRequest) -> bytes:
+        grid, options = score_inputs(body)
         return holder.events_to_midi_bytes(
-            iter(export_events(body.notes)), beat_grid=grid, export=ExportOptions(**options)
+            iter(export_events(body.notes)), beat_grid=grid, export=options
         )
+
+    def transport_seconds(body: ScoreRequest, beats: list[float]) -> list[float]:
+        """Where each of `beats`, counted from the MIDI's start, plays on the transport.
+
+        The same timeline the MIDI is written with (see upstream `notes_to_midi`),
+        which already works in transport time: stored times less the onset delay.
+        """
+        grid, options = score_inputs(body)
+        onsets = [n.start for n in body.notes]
+        resolved = resolve_grid(grid, options, onsets)
+        delay = resolved.onset_delay
+        earliest = min([-delay] + [t - delay for t in onsets])
+        timeline = timeline_for(resolved, earliest)
+        if not resolved.steady:
+            # The MIDI's tempo map follows smoothed, simplified beats, which can be
+            # 0.1 s off the tracked ones. Notes still quantize into the same
+            # measures, so time the measures by the tracked beats, as the roll
+            # draws its bars and as the recording plays.
+            raw = body.beat_grid.beats if body.beat_grid else None
+            tracked = np.asarray(raw) if raw and options.beat_scale == 1 else resolved.beats
+            downbeat = nearest(tracked, resolved.first_downbeat)
+            shift = round(float(timeline.beats_at(tracked[downbeat])))
+            timeline = Timeline(tracked, np.arange(len(tracked)) - downbeat + shift)
+        return [round(float(timeline.seconds_at(b)), 4) for b in beats]
 
     @api.post("/score/musicxml")
     async def score_musicxml(body: ScoreRequest):
@@ -262,6 +290,42 @@ def create_studio_app(
         except MuseScoreError as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
         return Response(content=data, media_type="application/vnd.recordare.musicxml+xml")
+
+    @api.post("/score/view")
+    async def score_view(body: ScoreRequest):
+        """The MusicXML for the Score tab, and where each measure plays."""
+        # Measure 1 must start where the MIDI does, at the recording's start.
+        body = body.model_copy(
+            update={"options": body.options.model_copy(update={"trim_leading_bars": False})}
+        )
+
+        def build() -> dict[str, Any]:
+            with tempfile.TemporaryDirectory(prefix="studio-score-") as tmp:
+                out = Path(tmp) / "score.musicxml"
+                info = write_musicxml(
+                    score_midi(body),
+                    out,
+                    body.beat_grid is not None,
+                    body.key.as_key() if body.key else None,
+                    body.chords,
+                ) or {}
+                starts, end = score_measures(out)
+                xml = out.read_text(encoding="utf-8")
+            times = transport_seconds(body, starts + [end])
+            return {
+                "musicxml": xml,
+                "measures": times[:-1],
+                "end": times[-1],
+                "key": info.get("key"),
+                "chords": info.get("chords", 0),
+            }
+
+        try:
+            return await asyncio.to_thread(build)
+        except MuseScoreNotFoundError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except MuseScoreError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     @api.post("/score/pdf")
     async def score_pdf(body: ScoreRequest):

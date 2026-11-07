@@ -205,6 +205,15 @@ def measure_map(measures: list[ET.Element]) -> tuple[list[float], list[int], flo
     return starts, per_beat, beat
 
 
+def score_measures(path: Path) -> tuple[list[float], float]:
+    """Where each measure of a MusicXML file starts, and where it ends, in quarter-note beats."""
+    part = ET.parse(path).getroot().find("part")
+    if part is None:
+        return [], 0.0
+    starts, _, end = measure_map(part.findall("measure"))
+    return starts, end
+
+
 def add_chords(root: ET.Element, chords: list[dict[str, Any]]) -> int:
     """Write chord symbols into the first pitched part. Returns how many landed."""
     parts = [p for p in root.findall("part") if not _is_drum_part(p)]

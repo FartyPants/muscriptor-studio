@@ -91,6 +91,17 @@ async function blob(resp: Response): Promise<Blob> {
   return resp.blob();
 }
 
+/** Sheet music for the Score tab. Times are transport seconds. */
+export type ScoreView = {
+  musicxml: string;
+  /** Where each measure starts. */
+  measures: number[];
+  /** Where the last measure ends. */
+  end: number;
+  key: string | null;
+  chords: number;
+};
+
 export const api = {
   models: () => fetch("/studio/api/models").then(json<ModelsState>),
 
@@ -119,6 +130,8 @@ export const api = {
   analysis: (notes: ProjectNote[], beat_grid: BeatGrid | null, key: ChosenKey | null) =>
     fetch("/studio/api/analysis", send({ notes, beat_grid, key }, "POST")).then(json<Analysis>),
 
+  scoreView: (body: unknown) =>
+    fetch("/studio/api/score/view", send(body, "POST")).then(json<ScoreView>),
   scoreMusicXml: (body: unknown) =>
     fetch("/studio/api/score/musicxml", send(body, "POST")).then(blob),
 
