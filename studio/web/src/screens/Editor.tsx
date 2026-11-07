@@ -4,6 +4,7 @@ import type { AudioEngine } from "../audio";
 import { Button } from "../components/Button";
 import { InstrumentPanel } from "../components/InstrumentPanel";
 import { PianoRollCanvas } from "../components/PianoRollCanvas";
+import { RollScrollbar } from "../components/RollScrollbar";
 import { EditControls, RollToolbar } from "../components/RollToolbar";
 import { TopBar } from "../components/TopBar";
 import { Transport } from "../components/Transport";
@@ -373,6 +374,7 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
               setUserScrolled={setUserScrolled}
             />
           </div>
+          <RollScrollbar rollRef={rollRef} onScroll={() => setUserScrolled(true)} />
         </div>
         <InstrumentPanel
           notes={notes}

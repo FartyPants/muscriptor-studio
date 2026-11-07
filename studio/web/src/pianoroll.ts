@@ -561,6 +561,22 @@ export class PianoRoll {
     this.noteGesture();
   }
 
+  /** Move the view's left edge to `offsetSec`, taking it out of follow mode. */
+  scrollTo(offsetSec: number) {
+    this.userOffset = this.clampOffset(offsetSec, this._pxPerSec);
+    this.noteGesture();
+  }
+
+  /** What a scrollbar needs to show. */
+  get scrollState() {
+    const contentW = this.canvas.getBoundingClientRect().width - KEY_WIDTH;
+    return {
+      offsetSec: this.lastOffset,
+      viewSec: contentW / this._pxPerSec,
+      totalSec: this.contentEnd(),
+    };
+  }
+
   /** Pan the pitch axis by `deltaPx` pixels. */
   scrollPitchBy(deltaPx: number) {
     this.noteGesture();

@@ -210,7 +210,7 @@ export function PianoRollCanvas(props: {
 
   return (
     <section className="relative h-full overflow-hidden bg-black">
-      <canvas className="block h-full w-full" width={1200} height={400} ref={canvasRef} />
+      <canvas id="piano-roll" className="block h-full w-full" width={1200} height={400} ref={canvasRef} />
     </section>
   );
 }
