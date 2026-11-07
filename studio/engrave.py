@@ -230,6 +230,25 @@ def add_chords(root: ET.Element, chords: list[dict[str, Any]]) -> int:
     return written
 
 
+def keep_first_tempo(root: ET.Element) -> int:
+    """Drop all but the opening tempo mark. Returns how many went.
+
+    A tempo map that follows a performance changes every few bars. That is right
+    for playback, and the MIDI keeps it, but on the page it is clutter.
+    """
+    removed = 0
+    seen = False
+    for measure in root.iter("measure"):
+        for direction in measure.findall("direction"):
+            if direction.find(".//metronome") is None:
+                continue
+            if seen:
+                measure.remove(direction)
+                removed += 1
+            seen = True
+    return removed
+
+
 def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: bool) -> dict[str, Any]:
     """Set the key and add chords in `path`. Returns what was used."""
     notes, beats_per_bar = notes_in_beats(midi_path)
@@ -240,6 +259,7 @@ def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: 
         for part in root.findall("part"):
             if not _is_drum_part(part):
                 rewrite_key(part, resolved)
+    keep_first_tempo(root)
     chords = score_chords(notes, beats_per_bar, resolved) if with_chords else []
     written = add_chords(root, chords) if chords else 0
     tree.write(path, encoding="utf-8", xml_declaration=True)

@@ -7,6 +7,7 @@ import pytest
 from studio.analysis import Key
 from studio.engrave import (
     add_chords,
+    keep_first_tempo,
     measure_map,
     notes_in_beats,
     prepare_musicxml,
@@ -226,6 +227,21 @@ def test_chords_from_a_midi_land_on_its_bars(tmp_path):
     roots = [m.find("harmony/root/root-step").text for m in measures]
     assert roots == ["C", "G", "A"]
     assert measures[2].find("harmony/kind").text == "minor"
+
+
+def test_only_the_opening_tempo_mark_stays():
+    tempo = "<direction><direction-type><metronome><per-minute>{}</per-minute></metronome></direction-type></direction>"
+    words = "<direction><direction-type><words>dolce</words></direction-type></direction>"
+    root = ET.fromstring(
+        '<score-partwise><part id="P">'
+        f'<measure number="1">{tempo.format(120)}</measure>'
+        f'<measure number="2">{tempo.format(90)}{words}</measure>'
+        f'<measure number="3">{tempo.format(140)}</measure>'
+        "</part></score-partwise>"
+    )
+    assert keep_first_tempo(root) == 2
+    assert [m.text for m in root.iter("per-minute")] == ["120"]
+    assert root.find(".//words").text == "dolce"
 
 
 def test_e_flat_minor_is_written_in_flats():
