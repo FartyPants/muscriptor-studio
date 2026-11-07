@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Analysis, ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
 import type { BeatGrid } from "../pianoroll";
-import { IconButton, Popover, Select, Toggle } from "./ui";
+import { IconButton, Popover, Segmented, Select, Toggle } from "./ui";
+
+export type ProjectView = "roll" | "score";
 
 const fmt = (s: number) => {
   const t = Math.max(0, s);
@@ -13,12 +15,31 @@ const fmt = (s: number) => {
 };
 
 const NAMES = ["C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
-const MINOR_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
+const MINOR_NAMES = [
+  "C",
+  "C♯",
+  "D",
+  "E♭",
+  "E",
+  "F",
+  "F♯",
+  "G",
+  "G♯",
+  "A",
+  "B♭",
+  "B",
+];
 
 const AUTO = "auto";
 const KEY_OPTIONS = [
-  ...NAMES.map((name, tonic) => ({ value: `${tonic}:major`, label: `${name} major` })),
-  ...MINOR_NAMES.map((name, tonic) => ({ value: `${tonic}:minor`, label: `${name} minor` })),
+  ...NAMES.map((name, tonic) => ({
+    value: `${tonic}:major`,
+    label: `${name} major`,
+  })),
+  ...MINOR_NAMES.map((name, tonic) => ({
+    value: `${tonic}:minor`,
+    label: `${name} minor`,
+  })),
 ];
 
 function KeyMenu(props: {
@@ -73,7 +94,15 @@ function MeterMenu(props: {
   );
 }
 
-function Detail({ name, value, why }: { name: string; value: string; why: string }) {
+function Detail({
+  name,
+  value,
+  why,
+}: {
+  name: string;
+  value: string;
+  why: string;
+}) {
   return (
     <div>
       <div className="flex justify-between gap-6 text-[13px]">
@@ -86,7 +115,8 @@ function Detail({ name, value, why }: { name: string; value: string; why: string
 }
 
 function meterReason(chosen: number | null, detected: number | null): string {
-  if (chosen) return `Set by you. ${detected ? `Detected: ${detected}/4.` : "None was detected."} The notes don't move.`;
+  if (chosen)
+    return `Set by you. ${detected ? `Detected: ${detected}/4.` : "None was detected."} The notes don't move.`;
   if (detected) return "Estimated from beat grid analysis.";
   return "Not detected, so bars of 4 are assumed. Choose the meter beside the key.";
 }
@@ -109,7 +139,9 @@ function AnalysisDetails(props: {
         </IconButton>
       )}
     >
-      <h3 className="mb-3 text-sm font-semibold text-content">Analysis details</h3>
+      <h3 className="mb-3 text-sm font-semibold text-content">
+        Analysis details
+      </h3>
       <div className="flex flex-col gap-3">
         <Detail
           name="Key"
@@ -152,9 +184,21 @@ export function Transport(props: {
   following: boolean;
   onFollow: (on: boolean) => void;
   onRestart: () => void;
+  view: ProjectView;
+  /** Null while there is no score to show. */
+  onView: ((view: ProjectView) => void) | null;
 }) {
   const { audio, grid, detectedMeter, chosenMeter, onChooseMeter } = props;
-  const { analysis, chosenKey, onChooseKey, following, onFollow, onRestart } = props;
+  const {
+    analysis,
+    chosenKey,
+    onChooseKey,
+    following,
+    onFollow,
+    onRestart,
+    view,
+    onView,
+  } = props;
   const [playing, setPlaying] = useState(false);
   const [metronome, setMetronome] = useState(false);
   const [clickLevel, setClickLevel] = useState(0.5);
@@ -188,13 +232,21 @@ export function Transport(props: {
           onClick={() => (playing ? audio.pause() : audio.play())}
           className="inline-flex h-8 w-[84px] items-center justify-center gap-1.5 rounded-control bg-accent text-[13px] font-semibold text-ink hover:bg-[#a7bbff]"
         >
-          {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+          {playing ? (
+            <Pause size={14} fill="currentColor" />
+          ) : (
+            <Play size={14} fill="currentColor" />
+          )}
           {playing ? "Pause" : "Play"}
         </button>
         <IconButton label="Back to start" onClick={onRestart}>
           <SkipBack size={15} />
         </IconButton>
-        <Toggle title="Keep the playhead in view" pressed={following} onClick={() => onFollow(!following)}>
+        <Toggle
+          title="Keep the playhead in view"
+          pressed={following}
+          onClick={() => onFollow(!following)}
+        >
           <Crosshair size={15} />
           Follow
         </Toggle>
@@ -210,7 +262,9 @@ export function Transport(props: {
 
       <div className="flex items-center gap-1">
         <Toggle
-          title={grid ? "Click on every beat" : "The metronome needs a beat grid"}
+          title={
+            grid ? "Click on every beat" : "The metronome needs a beat grid"
+          }
           pressed={metronome}
           disabled={!grid}
           onClick={() => setMetronome(!metronome)}
@@ -240,7 +294,11 @@ export function Transport(props: {
             title="Used for chord names, scale lock and sheet music. Notes are not transposed."
           >
             <span className="text-[13px] text-muted">Key</span>
-            <KeyMenu analysis={analysis} chosen={chosenKey} onChoose={onChooseKey} />
+            <KeyMenu
+              analysis={analysis}
+              chosen={chosenKey}
+              onChoose={onChooseKey}
+            />
           </div>
         )}
         {grid && (
@@ -249,10 +307,18 @@ export function Transport(props: {
             title="Sets the bars on the timeline, the metronome and the sheet music. Notes don't move."
           >
             <span className="text-[13px] text-muted">Meter</span>
-            <MeterMenu detected={detectedMeter} chosen={chosenMeter} onChoose={onChooseMeter} />
+            <MeterMenu
+              detected={detectedMeter}
+              chosen={chosenMeter}
+              onChoose={onChooseMeter}
+            />
           </div>
         )}
-        {grid && <span className="tabular text-[13px] text-content">{Math.round(grid.bpm)} BPM</span>}
+        {grid && (
+          <span className="tabular text-[13px] text-content">
+            {Math.round(grid.bpm)} BPM
+          </span>
+        )}
         {(grid || analysis) && (
           <AnalysisDetails
             analysis={analysis}
@@ -264,7 +330,9 @@ export function Transport(props: {
         )}
       </div>
 
-      <label className={clsx("ml-auto flex items-center gap-2 text-xs text-muted")}>
+      <label
+        className={clsx("ml-auto flex items-center gap-2 text-xs text-muted")}
+      >
         Recording
         <input
           aria-label="Balance between the recording and the notes"
@@ -279,6 +347,17 @@ export function Transport(props: {
         />
         Notes
       </label>
+      {onView && (
+        <Segmented
+          label="View"
+          value={view}
+          options={[
+            { value: "roll", label: "Roll" },
+            { value: "score", label: "Score" },
+          ]}
+          onChange={onView}
+        />
+      )}
     </div>
   );
 }

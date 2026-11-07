@@ -5,22 +5,39 @@ import { InstrumentDialog } from "../components/InstrumentDialog";
 import { InstrumentPanel } from "../components/Instruments";
 import { PianoRollCanvas } from "../components/PianoRollCanvas";
 import { RetranscribeDialog } from "../components/RetranscribeDialog";
+import { ScoreView } from "../components/ScoreView";
 import { RollScrollbar } from "../components/RollScrollbar";
 import { EditControls, RollToolbar } from "../components/Toolbar";
 import { TopBar } from "../components/TopBar";
 import { TranscribeBar } from "../components/TranscribeBar";
-import { Transport } from "../components/Transport";
+import { Transport, type ProjectView } from "../components/Transport";
 import { useEditorKeys } from "../hooks/useEditorKeys";
 import { gridWithMeter, useProject, type Range } from "../hooks/useProject";
 import { useRollFrame } from "../hooks/useRollFrame";
-import { DEFAULT_DISPLAY, type GridDisplay, type PianoRoll } from "../pianoroll";
+import {
+  DEFAULT_DISPLAY,
+  type GridDisplay,
+  type PianoRoll,
+} from "../pianoroll";
 import { ProgressEstimator } from "../progress";
 
 const DISPLAY_KEY = "studio.display";
+const VIEW_KEY = "studio.view";
+
+function loadView(): ProjectView {
+  try {
+    return sessionStorage.getItem(VIEW_KEY) === "score" ? "score" : "roll";
+  } catch {
+    return "roll";
+  }
+}
 
 function loadDisplay(): GridDisplay {
   try {
-    return { ...DEFAULT_DISPLAY, ...JSON.parse(localStorage.getItem(DISPLAY_KEY) ?? "{}") };
+    return {
+      ...DEFAULT_DISPLAY,
+      ...JSON.parse(localStorage.getItem(DISPLAY_KEY) ?? "{}"),
+    };
   } catch {
     return DEFAULT_DISPLAY;
   }
@@ -32,7 +49,13 @@ const toggled = (set: Set<string>, name: string) => {
   return next;
 };
 
-export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine }) {
+export function ProjectScreen({
+  id,
+  audio,
+}: {
+  id: string;
+  audio: AudioEngine;
+}) {
   const rollRef = useRef<PianoRoll | null>(null);
   const progressRef = useRef<ProgressEstimator | null>(null);
   const progress = (progressRef.current ??= new ProgressEstimator());
@@ -48,7 +71,17 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     progress,
     onRedraw: () => setEditTick((t) => t + 1),
   });
-  const { doc, phase, working, notes, liveNames, analysis, saveState, error, notice } = project;
+  const {
+    doc,
+    phase,
+    working,
+    notes,
+    liveNames,
+    analysis,
+    saveState,
+    error,
+    notice,
+  } = project;
   const editorRef = project.editor;
 
   const [muted, setMuted] = useState<Set<string>>(new Set());
@@ -62,6 +95,23 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
   const [range, setRange] = useState<Range | null>(null);
   const [showExport, setShowExport] = useState(false);
   const [redo, setRedo] = useState<"all" | "range" | null>(null);
+  const [chosenView, setChosenView] = useState(loadView);
+  // Live notes arrive on the roll, so the score waits for the finished project.
+  const view: ProjectView = phase === "ready" ? chosenView : "roll";
+
+  const chooseView = (next: ProjectView) => {
+    setChosenView(next);
+    try {
+      sessionStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // A remembered tab is a convenience.
+    }
+    // The roll's editing keys must not change notes nobody can see.
+    if (next === "score") {
+      setEditing(false);
+      editorRef.current?.setEnabled(false);
+    }
+  };
 
   const transcribingRef = useRef(false);
   transcribingRef.current = phase === "transcribing";
@@ -77,7 +127,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
   useEditorKeys(audio, editorRef);
 
   const names = useMemo(
-    () => (notes.length ? [...new Set(notes.map((n) => n.instrument))] : liveNames),
+    () =>
+      notes.length ? [...new Set(notes.map((n) => n.instrument))] : liveNames,
     [notes, liveNames],
   );
 
@@ -105,7 +156,9 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     rollRef.current?.setKeyLanes(inKey ?? null);
   }, [inKey]);
 
-  const startRetranscribing = (request: Parameters<typeof project.retranscribe>[1]) => {
+  const startRetranscribing = (
+    request: Parameters<typeof project.retranscribe>[1],
+  ) => {
     const target = redo === "range" ? range : null;
     editorRef.current?.setEnabled(false);
     setEditing(false);
@@ -126,7 +179,9 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
         title={doc?.name ?? "Loading"}
         model={doc?.model ?? null}
         saveState={phase === "ready" ? saveState : null}
-        onExport={phase === "ready" && !working ? () => setShowExport(true) : null}
+        onExport={
+          phase === "ready" && !working ? () => setShowExport(true) : null
+        }
         onRetranscribe={phase === "ready" && !working ? setRedo : null}
         hasRange={range !== null}
       />
@@ -150,6 +205,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
           rollRef.current?.follow();
           setUserScrolled(false);
         }}
+        view={view}
+        onView={phase === "ready" ? chooseView : null}
       />
 
       {working && (
@@ -163,8 +220,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
 
       {phase === "ready" && doc?.status === "partial" && !working && (
         <p className="shrink-0 border-b border-line bg-panel px-3 py-1.5 text-[13px] text-muted">
-          Stopped early. This project holds {notes.length.toLocaleString()} notes, up to where
-          transcription stopped.
+          Stopped early. This project holds {notes.length.toLocaleString()}{" "}
+          notes, up to where transcription stopped.
         </p>
       )}
 
@@ -178,54 +235,77 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
       )}
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <RollToolbar
-            roll={rollRef.current}
-            display={display}
-            onDisplay={setDisplay}
-            hasBars={Boolean(doc?.beat_grid)}
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {/* Hidden, not removed: the roll keeps its view, and the editor its canvas. */}
+          <div
+            className={
+              view === "score"
+                ? "invisible flex min-h-0 flex-1 flex-col"
+                : "flex min-h-0 flex-1 flex-col"
+            }
           >
-            {phase === "ready" && !working && (
-              <EditControls
-                editing={editing}
-                snap={snap}
-                snapAvailable={Boolean(doc?.beat_grid)}
-                scaleLock={scaleLock}
-                scaleAvailable={Boolean(analysis?.key)}
-                editor={editorRef.current}
-                store={project.store.current}
-                onEditing={(on) => {
-                  setEditing(on);
-                  const editor = editorRef.current;
-                  editor?.setEnabled(on);
-                  if (on && !editor?.active) {
-                    const first = names[0] ?? null;
-                    setActive(first);
-                    editor?.setActive(first);
-                  }
-                }}
-                onSnap={(on) => {
-                  setSnap(on);
-                  if (editorRef.current) editorRef.current.snap = on;
-                }}
-                onScaleLock={(on) => {
-                  setScaleLock(on);
-                  if (editorRef.current) editorRef.current.scaleLock = on;
-                }}
-              />
-            )}
-          </RollToolbar>
-          <div className="min-h-0 flex-1">
-            <PianoRollCanvas
-              rollRef={rollRef}
-              editorRef={editorRef}
-              audio={audio}
+            <RollToolbar
+              roll={rollRef.current}
               display={display}
-              setUserScrolled={setUserScrolled}
-              onRange={setRange}
+              onDisplay={setDisplay}
+              hasBars={Boolean(doc?.beat_grid)}
+            >
+              {phase === "ready" && !working && (
+                <EditControls
+                  editing={editing}
+                  snap={snap}
+                  snapAvailable={Boolean(doc?.beat_grid)}
+                  scaleLock={scaleLock}
+                  scaleAvailable={Boolean(analysis?.key)}
+                  editor={editorRef.current}
+                  store={project.store.current}
+                  onEditing={(on) => {
+                    setEditing(on);
+                    const editor = editorRef.current;
+                    editor?.setEnabled(on);
+                    if (on && !editor?.active) {
+                      const first = names[0] ?? null;
+                      setActive(first);
+                      editor?.setActive(first);
+                    }
+                  }}
+                  onSnap={(on) => {
+                    setSnap(on);
+                    if (editorRef.current) editorRef.current.snap = on;
+                  }}
+                  onScaleLock={(on) => {
+                    setScaleLock(on);
+                    if (editorRef.current) editorRef.current.scaleLock = on;
+                  }}
+                />
+              )}
+            </RollToolbar>
+            <div className="min-h-0 flex-1">
+              <PianoRollCanvas
+                rollRef={rollRef}
+                editorRef={editorRef}
+                audio={audio}
+                display={display}
+                setUserScrolled={setUserScrolled}
+                onRange={setRange}
+              />
+            </div>
+            <RollScrollbar
+              rollRef={rollRef}
+              onScroll={() => setUserScrolled(true)}
             />
           </div>
-          <RollScrollbar rollRef={rollRef} onScroll={() => setUserScrolled(true)} />
+          {doc && phase === "ready" && (
+            <ScoreView
+              doc={doc}
+              notes={notes}
+              chosenKey={doc.key ?? null}
+              audio={audio}
+              visible={view === "score"}
+              following={!userScrolled}
+              onUserScroll={() => setUserScrolled(true)}
+            />
+          )}
         </div>
         <InstrumentPanel
           notes={notes}
@@ -248,7 +328,9 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
         <InstrumentDialog
           doc={doc}
           onHints={project.saveHints}
-          onStart={(hints) => project.transcribeProject(doc, project.file.current!, hints)}
+          onStart={(hints) =>
+            project.transcribeProject(doc, project.file.current!, hints)
+          }
         />
       )}
 
@@ -260,7 +342,11 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
           chosenKey={doc.key ?? null}
           hasChords={(analysis?.chords.length ?? 0) > 0}
           meter={doc.meter ?? doc.beat_grid?.beats_per_bar ?? 4}
-          onMeter={(meter) => project.chooseMeter(meter === doc.beat_grid?.beats_per_bar ? null : meter)}
+          onMeter={(meter) =>
+            project.chooseMeter(
+              meter === doc.beat_grid?.beats_per_bar ? null : meter,
+            )
+          }
           onClose={() => setShowExport(false)}
         />
       )}
