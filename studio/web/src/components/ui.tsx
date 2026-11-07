@@ -186,10 +186,10 @@ export function Popover(props: {
       e.stopPropagation();
       setOpen(false);
     };
-    document.addEventListener("mousedown", onPress);
+    document.addEventListener("mousedown", onPress, true);
     document.addEventListener("keydown", onKey, true);
     return () => {
-      document.removeEventListener("mousedown", onPress);
+      document.removeEventListener("mousedown", onPress, true);
       document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
@@ -268,14 +268,17 @@ export function Modal(props: {
   title: string;
   subtitle?: string;
   onClose?: () => void;
+  /** Closing here leaves the screen, so only the close button may do it. */
+  closeButtonOnly?: boolean;
+  closeLabel?: string;
   children: ReactNode;
 }) {
-  const { title, subtitle, onClose, children } = props;
-  const panel = useDialog(onClose ?? (() => {}));
+  const { title, subtitle, onClose, closeButtonOnly, closeLabel = "Close", children } = props;
+  const panel = useDialog(closeButtonOnly ? () => {} : (onClose ?? (() => {})));
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onMouseDown={onClose}
+      onMouseDown={closeButtonOnly ? undefined : onClose}
     >
       <div
         ref={panel}
@@ -291,7 +294,7 @@ export function Modal(props: {
             {subtitle && <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p>}
           </div>
           {onClose && (
-            <IconButton label="Close" onClick={onClose}>
+            <IconButton label={closeLabel} onClick={onClose}>
               <X size={16} />
             </IconButton>
           )}

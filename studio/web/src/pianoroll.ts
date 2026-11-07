@@ -418,6 +418,12 @@ export class PianoRoll {
     };
   }
 
+  /** Put the view back at the start of the song. */
+  showStart() {
+    this.userOffset = null;
+    this.lastOffset = 0;
+  }
+
   /** Back to the default zoom: all 88 keys, default time scale. */
   resetZoom() {
     this._pxPerSec = PX_PER_SEC;

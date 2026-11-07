@@ -26,8 +26,9 @@ export function InstrumentPicker(props: {
     const onPress = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", onPress);
-    return () => document.removeEventListener("mousedown", onPress);
+    // In the capture phase: a dialog stops mouse events before they reach here.
+    document.addEventListener("mousedown", onPress, true);
+    return () => document.removeEventListener("mousedown", onPress, true);
   }, []);
 
   const matches = useMemo(() => {
@@ -44,6 +45,8 @@ export function InstrumentPicker(props: {
     onChange(new Set([...selected, name]));
     setQuery("");
     setHighlight(0);
+    // Closed again, so the list doesn't sit over the buttons beneath it.
+    setOpen(false);
   };
 
   const remove = (name: string) => {
@@ -77,6 +80,8 @@ export function InstrumentPicker(props: {
           placeholder={selected.size ? "Add another" : "Type an instrument, such as saxophone"}
           value={query}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);

@@ -84,7 +84,7 @@ export function EditControls(props: {
             Stay in key
           </Toggle>
           <span role="status" aria-label="Selection" className="tabular ml-2 text-xs text-muted">
-            {editor?.status}
+            {editor?.status || "Click a note to select it. Double-click to add one."}
           </span>
         </>
       )}

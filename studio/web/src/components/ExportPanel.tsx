@@ -73,9 +73,10 @@ export function ExportPanel(props: {
   notes: ProjectNote[];
   names: string[];
   chosenKey: ChosenKey | null;
+  hasChords: boolean;
   onClose: () => void;
 }) {
-  const { doc, notes, names, chosenKey, onClose } = props;
+  const { doc, notes, names, chosenKey, hasChords, onClose } = props;
   const grid = doc.beat_grid;
   const followable = (grid?.beats?.length ?? 0) >= 2;
   const [tempoMap, setTempoMap] = useState(followable && grid?.steady === false);
@@ -91,6 +92,7 @@ export function ExportPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [sheets, setSheets] = useState<SheetFile[] | null>(null);
   const archive = useRef<Blob | null>(null);
+  const ready = useRef<HTMLParagraphElement>(null);
 
   const selected = useMemo(
     () => notes.filter((n) => included.has(n.instrument)),
@@ -141,6 +143,11 @@ export function ExportPanel(props: {
     setSheets(null);
     archive.current = null;
   }, [tempoMap, beatScale, meter, rhythm, chords, page, included]);
+
+  // The list opens below the fold, so bring it into view.
+  useEffect(() => {
+    if (sheets) ready.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [sheets]);
 
   const noneOn = selected.length === 0;
   const anyBusy = busy !== null;
@@ -225,7 +232,9 @@ export function ExportPanel(props: {
           label="Chord symbols"
           hint={
             grid
-              ? "Adds detected chords to MusicXML and sheet music."
+              ? hasChords
+                ? "Adds detected chords to MusicXML and sheet music."
+                : "No chords were detected in this song, so the score may show none."
               : "Needs a beat grid, to place chords on bars."
           }
           checked={chords && grid !== null}
@@ -335,7 +344,12 @@ export function ExportPanel(props: {
           </Button>
 
           {sheets && (
-            <ul className="mt-3 flex flex-col">
+            <p ref={ready} className="mt-3 text-[13px] font-medium text-ok">
+              Your PDFs are ready. Choose one to download.
+            </p>
+          )}
+          {sheets && (
+            <ul className="mt-2 flex flex-col">
               {sheets.map((file) => (
                 <li key={file.name}>
                   <button

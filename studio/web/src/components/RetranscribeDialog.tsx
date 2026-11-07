@@ -30,7 +30,7 @@ export function RetranscribeDialog(props: {
   return (
     <Modal
       title={range ? "Re-transcribe selected range" : "Re-transcribe entire audio"}
-      subtitle={`Replaces the ${noteCount.toLocaleString()} notes ${scope}. Undo brings them back.`}
+      subtitle={`Replaces ${noteCount === 1 ? "the 1 note" : `the ${noteCount.toLocaleString()} notes`} ${scope}. Undo brings them back.`}
       onClose={onCancel}
     >
       {models && (

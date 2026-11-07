@@ -64,8 +64,9 @@ export function PianoRollCanvas(props: {
       // Leaving the canvas on the left means "to the start" — a stationary
       // cursor gets no more mousemove events, so it could never out-scroll
       // the view to reach 0 otherwise.
+      const end = audio.duration || Infinity;
       const t =
-        clientX < rect.left ? 0 : Math.max(0, roll.xToSeconds(clientX - rect.left));
+        clientX < rect.left ? 0 : Math.min(end, Math.max(0, roll.xToSeconds(clientX - rect.left)));
       // Clock-only seek per move (a full seek() re-schedules every note); the
       // rAF loop reads it back into the roll's playhead each frame.
       audio.scrubTo(t);
@@ -134,6 +135,8 @@ export function PianoRollCanvas(props: {
       }
       // Hint the gesture with a resize cursor while hovering the key strip.
       const hoverX = e.clientX - rect.left;
+      const onRuler = hoverX >= KEY_WIDTH && e.clientY - rect.top < RULER_H;
+      canvas.title = onRuler ? "Click to jump here. Drag to choose a range to re-transcribe." : "";
       canvas.style.cursor =
         hoverX < KEY_WIDTH
           ? "ew-resize"
@@ -154,8 +157,9 @@ export function PianoRollCanvas(props: {
         } else {
           roll.setRange(null);
           onRange(null);
-          audio.seek(ruler.from);
-          roll.setPlayhead(ruler.from);
+          const to = Math.min(ruler.from, audio.duration || Infinity);
+          audio.seek(to);
+          roll.setPlayhead(to);
           setUserScrolled(false);
         }
         ruler = null;

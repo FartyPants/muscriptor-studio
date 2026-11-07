@@ -154,6 +154,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
     storeRef.current = store;
     rollRef.current?.setGridLines(saved.beat_grid);
     syncNotes(store, saved.beat_grid);
+    // A live transcription leaves the view at its end.
+    rollRef.current?.showStart();
     const editor = new RollEditor(store, rollRef.current!, audio, () => setEditTick((t) => t + 1));
     editor.setGrid(saved.beat_grid);
     editorRef.current = editor;
@@ -244,16 +246,20 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
       const file = target ? await api.audioRange(current.id, target) : fileRef.current!;
       const outcome = await transcribe(file, hints, { live: false });
       if (!outcome || !mounted.current) return;
-      const found = outcome.notes.map((n) => ({
-        ...n,
-        start: n.start + (target?.start ?? 0),
-        end: n.end + (target?.start ?? 0),
-      }));
+      const found = outcome.notes
+        .map((n) => ({
+          ...n,
+          start: n.start + (target?.start ?? 0),
+          end: n.end + (target?.start ?? 0),
+        }))
+        .filter((n) => !target || n.start < target.end + delay);
       if (outcome.stopped && found.length === 0) return;
       const { from, to } = replacedSpan(found, target, delay, outcome.stopped);
       store.apply(replaceRange(store.notes, found, from, to));
       // Only now: a run that failed leaves the project as it was.
       updateDoc({ hints, model });
+      // Don't make this much work wait for the autosave delay.
+      void saverRef.current?.flush();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -534,6 +540,8 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
         <Modal
           title="Which instruments play in this song?"
           subtitle="Transcription listens only for the instruments you list. Not sure? Detect them, or let the model decide."
+          closeButtonOnly
+          closeLabel="Back to projects"
           onClose={() => {
             window.location.hash = "#/new";
           }}
@@ -575,6 +583,7 @@ export function ProjectScreen({ id, audio }: { id: string; audio: AudioEngine })
           notes={storeRef.current?.notes ?? notes}
           names={names}
           chosenKey={doc.key ?? null}
+          hasChords={(analysis?.chords.length ?? 0) > 0}
           onClose={() => setShowExport(false)}
         />
       )}

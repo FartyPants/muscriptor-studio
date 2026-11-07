@@ -49,10 +49,7 @@ export function StartScreen() {
   useEffect(() => {
     api
       .models()
-      .then((state) => {
-        setModels(state);
-        if (state.active) setSize(state.active);
-      })
+      .then(setModels)
       .catch(() => setError("The MuScriptor server isn't responding. Start it with start-studio.bat."));
     api.projects().then(setRecent, () => {});
   }, []);
