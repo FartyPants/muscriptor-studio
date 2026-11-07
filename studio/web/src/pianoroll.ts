@@ -1,5 +1,10 @@
 import { INSTRUMENT_ORDER } from "./audio";
 
+/** A note's position while a drag previews it. */
+export type RollOverride = { pitch: number; start: number; end: number };
+
+export type Marquee = { x0: number; y0: number; x1: number; y1: number };
+
 export interface RollNote {
   /** Project note id; unset for notes still streaming in. */
   id?: string;
@@ -192,8 +197,8 @@ const PX_PER_SEC = 80;
 const MIN_PX_PER_SEC = 10;
 const MAX_PX_PER_SEC = 2000;
 const MAX_PX_PER_PITCH = 160;
-const PITCH_MIN = 21; // A0
-const PITCH_MAX = 108; // C8
+export const PITCH_MIN = 21; // A0
+export const PITCH_MAX = 108; // C8
 /** Top of the auto-fit view; higher pitches are reachable only by zooming. */
 const DEFAULT_PITCH_TOP = 84; // C6
 const DEFAULT_PITCH_RANGE = DEFAULT_PITCH_TOP - PITCH_MIN + 1; // 64
@@ -314,6 +319,13 @@ export class PianoRoll {
   private contentDuration = 0;
   /** Detected beat grid; null until the final `midi` event arrives (then: seconds grid). */
   private beatGrid: BeatGrid | null = null;
+  /** Editing: the only instrument at full strength, or null when not editing. */
+  private activeInstrument: string | null = null;
+  private selectedNotes: Set<string> = new Set();
+  private overrides: Map<string, RollOverride> | null = null;
+  private marquee: Marquee | null = null;
+  private lastRowH = 1;
+  private lastPitchTop = DEFAULT_PITCH_TOP;
 
   get pxPerSec(): number {
     return this._pxPerSec;
@@ -356,6 +368,31 @@ export class PianoRoll {
         }
       }
     }
+  }
+
+  setEditState(active: string | null, selected: Set<string>) {
+    this.activeInstrument = active;
+    this.selectedNotes = selected;
+  }
+
+  /** Draw these notes at new positions, until cleared with null. */
+  setOverrides(overrides: Map<string, RollOverride> | null) {
+    this.overrides = overrides;
+  }
+
+  setMarquee(marquee: Marquee | null) {
+    this.marquee = marquee;
+  }
+
+  /** How time and pitch map to pixels in the last frame drawn. */
+  view() {
+    return {
+      keyWidth: KEY_WIDTH,
+      offsetSec: this.lastOffset,
+      pxPerSec: this._pxPerSec,
+      pitchTop: this.lastPitchTop,
+      rowH: this.lastRowH,
+    };
   }
 
   /** Back to the default zoom: all 88 keys, default time scale. */
@@ -739,6 +776,8 @@ export class PianoRoll {
     const rowH = this.pxPerPitch ?? H / DEFAULT_PITCH_RANGE;
     const pitchTop =
       this.pxPerPitch === null ? DEFAULT_PITCH_TOP : this.pitchTop;
+    this.lastRowH = rowH;
+    this.lastPitchTop = pitchTop;
 
     // Everything time-indexed lives in the content area to the right of the
     // key strip; clip so notes/grid can't bleed under the keyboard.
@@ -803,40 +842,64 @@ export class PianoRoll {
     // collide with a note one semitone up. At the unzoomed row height this
     // rounds to no shift at all.
     const maxShift = Math.min(3, Math.max(0, rowGap - 1));
-    for (const n of this.notes) {
+    const active = this.activeInstrument;
+    const anySelected = this.selectedNotes.size > 0;
+    for (const original of this.notes) {
+      const n = (original.id && this.overrides?.get(original.id)) || original;
+      const instrument = original.instrument;
       if (n.pitch < PITCH_MIN || n.pitch > PITCH_MAX) continue;
-      if (this.hiddenInstruments.has(n.instrument)) continue;
+      if (this.hiddenInstruments.has(instrument)) continue;
       const x = KEY_WIDTH + (n.start - offsetSec) * pxPerSec;
       const full = Math.max(2, (n.end - n.start) * pxPerSec - NOTE_GAP_PX);
       // Left-to-right reveal: grow from the note's onset to its full width,
       // easing out over REVEAL_MS. Unstamped notes draw at full width.
       const reveal =
-        n.spawn === undefined
+        original.spawn === undefined
           ? 1
-          : easeOut(Math.min(1, (now - n.spawn) / REVEAL_MS));
+          : easeOut(Math.min(1, (now - original.spawn) / REVEAL_MS));
       const w = full * reveal;
       if (x + w < KEY_WIDTH || x > W) continue;
       // Nudge up so notes hidden behind an overlapping same-pitch note peek
       // out. stackOffset counts overlapping notes, so it can grow large (a
       // sustained note under a run of staccato hits collects +1 per hit) —
       // cap the TOTAL shift at the budget above.
-      const shift = Math.min((n.stackOffset ?? 0) * NOTE_STACK_PX, maxShift);
+      const shift = Math.min((original.stackOffset ?? 0) * NOTE_STACK_PX, maxShift);
       const y = (pitchTop - n.pitch) * rowH - shift;
       if (y + rowH < 0 || y > H) continue;
       // Muting dims a track; while an instrument is highlighted (hovered in
       // the instrument list), every other track fades even further back.
-      let alpha = this.mutedInstruments.has(n.instrument) ? 0.2 : 1;
+      let alpha = this.mutedInstruments.has(instrument) ? 0.2 : 1;
       if (
         this.highlightedInstrument !== null &&
-        n.instrument !== this.highlightedInstrument
+        instrument !== this.highlightedInstrument
       ) {
         alpha = Math.min(alpha, 0.15);
       }
+      const selected = original.id !== undefined && this.selectedNotes.has(original.id);
+      if (active !== null) {
+        if (instrument !== active) alpha = Math.min(alpha, 0.12);
+        else if (anySelected && !selected) alpha = Math.min(alpha, 0.45);
+      }
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = instrumentColor(n.instrument);
+      ctx.fillStyle = instrumentColor(instrument);
       ctx.fillRect(x, y, w, Math.max(2, rowH - rowGap));
+      if (selected) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x, y, w, Math.max(2, rowH - rowGap));
+      }
     }
     ctx.globalAlpha = 1;
+
+    if (this.marquee) {
+      const { x0, y0, x1, y1 } = this.marquee;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = 1;
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    }
 
     this.drawRuler(ctx, contentW, offsetSec, pxPerSec);
 

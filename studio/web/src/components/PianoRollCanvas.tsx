@@ -1,13 +1,15 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { AudioEngine } from "../audio";
+import type { RollEditor } from "../editor/rollEditor";
 import { PianoRoll, KEY_WIDTH } from "../pianoroll";
 
 export function PianoRollCanvas(props: {
   rollRef: RefObject<PianoRoll | null>;
+  editorRef: RefObject<RollEditor | null>;
   audio: AudioEngine;
   setUserScrolled: Dispatch<SetStateAction<boolean>>;
 }) {
-  const { rollRef, audio, setUserScrolled } = props;
+  const { rollRef, editorRef, audio, setUserScrolled } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -71,10 +73,16 @@ export function PianoRollCanvas(props: {
     // pitch axis horizontally (drag right = zoom in) and pans it vertically
     // (grab-style). Anchored on the cursor's pitch.
     let keyDrag: { x: number; y: number } | null = null;
+    let editing = false;
     const onMouseDown = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      if (x >= KEY_WIDTH) {
+      const y = e.clientY - rect.top;
+      const editor = editorRef.current;
+      if (x >= KEY_WIDTH && editor?.claims(y)) {
+        editing = true;
+        editor.down(x, y, e.shiftKey);
+      } else if (x >= KEY_WIDTH) {
         setUserScrolled(false);
         scrub = { wasPlaying: audio.state === "started" };
         if (scrub.wasPlaying) audio.pause();
@@ -85,6 +93,11 @@ export function PianoRollCanvas(props: {
       e.preventDefault();
     };
     const onMouseMove = (e: MouseEvent) => {
+      if (editing) {
+        const rect = canvas.getBoundingClientRect();
+        editorRef.current?.move(e.clientX - rect.left, e.clientY - rect.top, e.altKey);
+        return;
+      }
       if (scrub) {
         scrubTo(e.clientX);
         return;
@@ -102,10 +115,22 @@ export function PianoRollCanvas(props: {
         return;
       }
       // Hint the gesture with a resize cursor while hovering the key strip.
+      const hoverX = e.clientX - rect.left;
       canvas.style.cursor =
-        e.clientX - rect.left < KEY_WIDTH ? "ew-resize" : "default";
+        hoverX < KEY_WIDTH
+          ? "ew-resize"
+          : (editorRef.current?.cursorAt(hoverX, e.clientY - rect.top) ?? "default");
+    };
+    const onDoubleClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x >= KEY_WIDTH) editorRef.current?.add(x, e.clientY - rect.top);
     };
     const onMouseUp = () => {
+      if (editing) {
+        editing = false;
+        editorRef.current?.up();
+      }
       if (scrub) {
         // One real seek to rebuild the (one-shot) note schedule from the
         // release point, then resume if the drag interrupted playback.
@@ -168,6 +193,7 @@ export function PianoRollCanvas(props: {
     canvas.addEventListener("touchmove", onTouchMove, { passive: false });
     canvas.addEventListener("touchend", onTouchEnd, { passive: false });
     canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("dblclick", onDoubleClick);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     return () => {
@@ -176,10 +202,11 @@ export function PianoRollCanvas(props: {
       canvas.removeEventListener("touchmove", onTouchMove);
       canvas.removeEventListener("touchend", onTouchEnd);
       canvas.removeEventListener("mousedown", onMouseDown);
+      canvas.removeEventListener("dblclick", onDoubleClick);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [audio, rollRef, setUserScrolled]);
+  }, [audio, rollRef, editorRef, setUserScrolled]);
 
   return (
     <section className="relative h-full overflow-hidden bg-black">

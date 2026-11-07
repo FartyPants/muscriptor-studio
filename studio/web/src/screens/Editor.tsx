@@ -4,21 +4,23 @@ import type { AudioEngine } from "../audio";
 import { Button } from "../components/Button";
 import { InstrumentPanel } from "../components/InstrumentPanel";
 import { PianoRollCanvas } from "../components/PianoRollCanvas";
-import { RollToolbar } from "../components/RollToolbar";
+import { EditControls, RollToolbar } from "../components/RollToolbar";
 import { TopBar } from "../components/TopBar";
 import { Transport } from "../components/Transport";
+import { NoteStore } from "../editor/noteStore";
+import { RollEditor } from "../editor/rollEditor";
 import { DEFAULT_CLEANUP, exportMidi, NO_OVERRIDES, saveBlob } from "../export";
 import { takeStartRequest, useProjectTranscription } from "../hooks/useProjectTranscription";
 import { metronomeClicks } from "../metronome";
-import type { PianoRoll } from "../pianoroll";
+import type { BeatGrid, PianoRoll } from "../pianoroll";
 import { formatClock, ProgressEstimator } from "../progress";
 
 type Phase = "loading" | "idle" | "transcribing" | "ready";
 
 /** Stored notes, moved onto the beats as the roll and audio show them. */
-function displayNotes(doc: ProjectDoc) {
-  const delay = doc.beat_grid?.onset_delay ?? 0;
-  return doc.notes.map((n: ProjectNote) => ({
+function displayNotes(stored: ProjectNote[], grid: BeatGrid | null) {
+  const delay = grid?.onset_delay ?? 0;
+  return stored.map((n) => ({
     id: n.id,
     instrument: n.instrument,
     pitch: n.pitch,
@@ -43,6 +45,14 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
   const [solo, setSolo] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [userScrolled, setUserScrolled] = useState(false);
+  const storeRef = useRef<NoteStore | null>(null);
+  const editorRef = useRef<RollEditor | null>(null);
+  const [notes, setNotes] = useState<ProjectNote[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [snap, setSnap] = useState(true);
+  const [active, setActive] = useState<string | null>(null);
+  // Bumped when the editor's selection or history changes, to redraw the toolbar.
+  const [, setEditTick] = useState(0);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
@@ -55,14 +65,31 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     onInstrument: (name) => setLiveNames((names) => [...names, name]),
   });
 
-  /** Make the roll, playback and metronome show `saved`. */
+  /** Make the roll and playback show the store's notes. */
+  function syncNotes(store: NoteStore, grid: BeatGrid | null) {
+    const shown = displayNotes(store.notes, grid);
+    const last = shown.reduce((end, n) => Math.max(end, n.end), 0);
+    rollRef.current?.setNotes(shown);
+    audio.replaceNotes(shown, last > 0 ? last + 0.3 : null);
+    audio.setClicks(metronomeClicks(grid, Math.max(audio.duration, last)));
+    setNotes(store.notes);
+  }
+
+  /** Start editing `saved`: one store, followed by the roll and playback. */
   function showProject(saved: ProjectDoc) {
-    const notes = displayNotes(saved);
-    const last = notes.reduce((end, n) => Math.max(end, n.end), 0);
-    rollRef.current?.setNotes(notes);
+    const store = new NoteStore(saved.notes);
+    storeRef.current = store;
     rollRef.current?.setGridLines(saved.beat_grid);
-    audio.replaceNotes(notes, last > 0 ? last + 0.3 : null);
-    audio.setClicks(metronomeClicks(saved.beat_grid, Math.max(audio.duration, last)));
+    syncNotes(store, saved.beat_grid);
+    const editor = new RollEditor(store, rollRef.current!, audio, () =>
+      setEditTick((t) => t + 1),
+    );
+    editor.setGrid(saved.beat_grid);
+    editorRef.current = editor;
+    store.subscribe(() => {
+      syncNotes(store, saved.beat_grid);
+      editor.rebuild();
+    });
   }
 
   async function run(current: ProjectDoc, file: File) {
@@ -160,7 +187,6 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
     return () => cancelAnimationFrame(raf);
   }, [audio, progress]);
 
-  const notes = doc?.notes ?? [];
   const names = useMemo(
     () => (notes.length ? [...new Set(notes.map((n) => n.instrument))] : liveNames),
     [notes, liveNames],
@@ -183,10 +209,11 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
 
   const exportCurrent = useCallback(async () => {
     if (!doc) return;
+    const current = storeRef.current?.notes ?? doc.notes;
     setExporting(true);
     setError(null);
     try {
-      const blob = await exportMidi(doc.notes, doc.beat_grid, NO_OVERRIDES, {
+      const blob = await exportMidi(current, doc.beat_grid, NO_OVERRIDES, {
         ...DEFAULT_CLEANUP,
         quantize: false,
         fill_gaps: 0,
@@ -201,9 +228,13 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || (e.target as HTMLElement).closest("input, textarea, select, button")) {
+      const target = e.target as HTMLElement;
+      if (target.closest("input, textarea, select")) return;
+      if (editorRef.current?.key(e)) {
+        e.preventDefault();
         return;
       }
+      if (e.code !== "Space" || target.closest("button")) return;
       e.preventDefault();
       if (audio.state === "started") audio.pause();
       else audio.play();
@@ -268,9 +299,38 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <RollToolbar roll={rollRef.current} />
+          <RollToolbar roll={rollRef.current}>
+            {phase === "ready" && (
+              <EditControls
+                editing={editing}
+                snap={snap}
+                snapAvailable={Boolean(doc?.beat_grid)}
+                editor={editorRef.current}
+                store={storeRef.current}
+                onEditing={(on) => {
+                  setEditing(on);
+                  const editor = editorRef.current;
+                  editor?.setEnabled(on);
+                  if (on && !editor?.active) {
+                    const first = names[0] ?? null;
+                    setActive(first);
+                    editor?.setActive(first);
+                  }
+                }}
+                onSnap={(on) => {
+                  setSnap(on);
+                  if (editorRef.current) editorRef.current.snap = on;
+                }}
+              />
+            )}
+          </RollToolbar>
           <div className="min-h-0 flex-1">
-            <PianoRollCanvas rollRef={rollRef} audio={audio} setUserScrolled={setUserScrolled} />
+            <PianoRollCanvas
+              rollRef={rollRef}
+              editorRef={editorRef}
+              audio={audio}
+              setUserScrolled={setUserScrolled}
+            />
           </div>
         </div>
         <InstrumentPanel
@@ -278,6 +338,12 @@ export function Editor({ id, audio }: { id: string; audio: AudioEngine }) {
           names={names}
           muted={muted}
           solo={solo}
+          active={editing ? active : null}
+          onActivate={(name) => {
+            if (!editing) return;
+            setActive(name);
+            editorRef.current?.setActive(name);
+          }}
           onMute={(name) => setMuted((m) => toggle(m, name))}
           onSolo={(name) => setSolo((s) => toggle(s, name))}
           onHover={(name) => rollRef.current?.setHighlightedInstrument(name)}

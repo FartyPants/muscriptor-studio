@@ -327,6 +327,17 @@ export class AudioEngine {
     this.seek(Tone.getTransport().seconds);
   }
 
+  /** Sound one note now, as feedback for an edit. */
+  audition(instrument: string, pitch: number) {
+    const synth = this.synth;
+    if (!synth) return;
+    Tone.start().catch(() => {});
+    const channel = this.channelFor(instrument);
+    const time = this.ctx.currentTime;
+    synth.noteOn(channel, pitch, NOTE_VELOCITY, { time });
+    synth.noteOff(channel, pitch, { time: time + 0.25 });
+  }
+
   setClicks(clicks: Click[]) {
     this.clicks = clicks;
     this.seek(Tone.getTransport().seconds);

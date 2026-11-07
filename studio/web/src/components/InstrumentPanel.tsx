@@ -37,11 +37,14 @@ export function InstrumentPanel(props: {
   names: string[];
   muted: Set<string>;
   solo: Set<string>;
+  /** Edit mode's instrument, or null outside Edit mode. */
+  active: string | null;
+  onActivate: (name: string) => void;
   onMute: (name: string) => void;
   onSolo: (name: string) => void;
   onHover: (name: string | null) => void;
 }) {
-  const { notes, names, muted, solo, onMute, onSolo, onHover } = props;
+  const { notes, names, muted, solo, active, onActivate, onMute, onSolo, onHover } = props;
   const rows = useMemo(() => instrumentRows(notes, names), [notes, names]);
   return (
     <aside className="w-72 shrink-0 overflow-y-auto border-l border-t border-line bg-surface p-3">
@@ -52,7 +55,11 @@ export function InstrumentPanel(props: {
         return (
           <div
             key={name}
-            className="mb-3"
+            className={clsx(
+              "-mx-1 mb-2 rounded-lg p-1",
+              active === name && "bg-surface-2 outline-1 outline-line-strong",
+            )}
+            onClick={() => onActivate(name)}
             onMouseEnter={() => onHover(name)}
             onMouseLeave={() => onHover(null)}
           >
@@ -68,7 +75,10 @@ export function InstrumentPanel(props: {
                 type="button"
                 aria-label={`Solo ${label(name)}`}
                 aria-pressed={solo.has(name)}
-                onClick={() => onSolo(name)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSolo(name);
+                }}
                 className={clsx(
                   "size-7 rounded border-none bg-transparent !p-0 text-xs font-semibold",
                   solo.has(name) ? "!bg-white text-black" : "text-muted hover:text-content",
@@ -80,7 +90,10 @@ export function InstrumentPanel(props: {
                 type="button"
                 aria-label={`Mute ${label(name)}`}
                 aria-pressed={muted.has(name)}
-                onClick={() => onMute(name)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMute(name);
+                }}
                 className={clsx(
                   "flex size-7 items-center justify-center rounded border-none bg-transparent !p-0",
                   muted.has(name) ? "text-red" : "text-muted hover:text-content",
