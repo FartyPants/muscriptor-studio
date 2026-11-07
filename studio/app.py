@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter, FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +19,7 @@ from studio.models import (
     ModelMissingError,
     SwitchableModel,
 )
+from studio.projects import DATA_DIR, ProjectNotFoundError, ProjectStore
 
 HERE = Path(__file__).resolve().parent
 ORIGINAL_WEB = HERE.parent / "muscriptor" / "web_dist"
@@ -75,6 +77,7 @@ def create_studio_app(
     holder: SwitchableModel,
     original_web: Path | None = ORIGINAL_WEB,
     studio_web: Path | None = None,
+    data_dir: Path = DATA_DIR,
 ) -> FastAPI:
     # web_dir=None: upstream mounts "/" last, which would swallow anything
     # added after it. It is mounted below instead, once Studio's routes exist.
@@ -82,6 +85,7 @@ def create_studio_app(
     app.add_middleware(TranscribeGuard, holder=holder)
 
     api = APIRouter(prefix="/studio/api")
+    store = ProjectStore(data_dir)
 
     @api.get("/models")
     async def list_models():
@@ -103,6 +107,41 @@ def create_studio_app(
         except ModelLoadError as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
         return {"active": holder.active}
+
+    @api.post("/projects")
+    async def create_project(
+        file: Annotated[UploadFile, File()],
+        model: Annotated[str | None, Form()] = None,
+    ):
+        name = file.filename or "audio"
+        return await asyncio.to_thread(store.create, name, file.file, model=model)
+
+    @api.get("/projects/{project_id}")
+    async def get_project(project_id: str):
+        try:
+            return await asyncio.to_thread(store.get, project_id)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+
+    @api.put("/projects/{project_id}")
+    async def put_project(project_id: str, doc: dict[str, Any]):
+        try:
+            return await asyncio.to_thread(store.put, project_id, doc)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+
+    @api.get("/projects/{project_id}/audio")
+    async def project_audio(project_id: str):
+        try:
+            path, media_type = await asyncio.to_thread(store.audio_path, project_id)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+        return FileResponse(path, media_type=media_type)
+
+    # Last, so a bad API path is a 404 rather than the page from the /studio mount.
+    @api.api_route("/{rest:path}", methods=["GET", "POST", "PUT", "DELETE"])
+    async def unknown_api(rest: str):
+        raise HTTPException(status_code=404, detail="not found")
 
     @app.get("/studio", include_in_schema=False)
     async def studio_root():
