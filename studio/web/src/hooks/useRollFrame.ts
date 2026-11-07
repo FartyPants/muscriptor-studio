@@ -12,9 +12,12 @@ export function useRollFrame(deps: {
   labelRef: RefObject<HTMLSpanElement | null>;
   /** Read each frame, so it stays current without re-subscribing. */
   transcribingRef: RefObject<boolean>;
+  /** True while the roll is out of sight: it keeps time but isn't drawn. */
+  hiddenRef: RefObject<boolean>;
   onFollowResumed: () => void;
 }) {
-  const { audio, rollRef, progress, fillRef, labelRef, transcribingRef, onFollowResumed } = deps;
+  const { audio, rollRef, progress, fillRef, labelRef, transcribingRef, hiddenRef } = deps;
+  const { onFollowResumed } = deps;
   useEffect(() => {
     let raf = 0;
     const frame = () => {
@@ -26,7 +29,7 @@ export function useRollFrame(deps: {
         roll.setTranscribedUntil(
           transcribingRef.current && duration > 0 ? progress.completedFraction() * duration : null,
         );
-        roll.render();
+        if (!hiddenRef.current) roll.render();
         if (roll.consumeAutoResumed()) onFollowResumed();
       }
       if (fillRef.current) {

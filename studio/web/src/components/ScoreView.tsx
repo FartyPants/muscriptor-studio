@@ -24,6 +24,20 @@ const REFRESH_DELAY_MS = 1500;
 const FOLLOW_MARGIN = 48;
 
 type Drawn = { view: View; boxes: MeasureBox[]; page: HTMLElement };
+type Source = {
+  notes: ProjectNote[];
+  key: string;
+  meter: number | null;
+  grid: ProjectDoc["beat_grid"];
+};
+
+const keyId = (key: ChosenKey | null) => (key ? `${key.tonic} ${key.mode}` : "");
+const sameSource = (a: Source | null, b: Source) =>
+  a !== null &&
+  a.notes === b.notes &&
+  a.key === b.key &&
+  a.meter === b.meter &&
+  a.grid === b.grid;
 
 function surface(): string {
   const ink = getComputedStyle(document.documentElement)
@@ -46,6 +60,9 @@ async function draw(host: HTMLElement, view: View): Promise<MeasureBox[]> {
     drawComposer: false,
     drawCredits: false,
     drawingParameters: "compact",
+    // A run of empty bars drawn as one would leave the rest without a box,
+    // so the playhead and clicks couldn't follow time through it.
+    autoGenerateMultipleRestMeasuresFromRestMeasures: false,
   });
   await osmd.load(renamedParts(view.musicxml));
   osmd.render();
@@ -70,14 +87,17 @@ async function draw(host: HTMLElement, view: View): Promise<MeasureBox[]> {
 export function ScoreView(props: {
   doc: ProjectDoc;
   notes: ProjectNote[];
-  chosenKey: ChosenKey | null;
+  /** The key in use, chosen or detected, so the score agrees with the transport. */
+  keyInUse: ChosenKey | null;
+  /** False until the key in use is known, so the first score isn't engraved twice. */
+  keyReady: boolean;
   audio: AudioEngine;
   visible: boolean;
   following: boolean;
   onUserScroll: () => void;
 }) {
-  const { doc, notes, chosenKey, audio, visible, following, onUserScroll } =
-    props;
+  const { doc, notes, keyInUse, keyReady, audio, visible, following } = props;
+  const { onUserScroll } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -93,23 +113,22 @@ export function ScoreView(props: {
   const [error, setError] = useState<string | null>(null);
   const [hasScore, setHasScore] = useState(false);
   // What the shown score was engraved from, and what it should be.
-  const wanted = {
+  const wanted: Source = {
     notes,
-    key: chosenKey,
+    key: keyId(keyInUse),
     meter: doc.meter ?? null,
     grid: doc.beat_grid,
   };
-  const [engraved, setEngraved] = useState<typeof wanted | null>(null);
-  const stale =
-    !engraved ||
-    engraved.notes !== wanted.notes ||
-    engraved.key !== wanted.key ||
-    engraved.meter !== wanted.meter ||
-    engraved.grid !== wanted.grid;
+  const [engraved, setEngraved] = useState<Source | null>(null);
+  const stale = !sameSource(engraved, wanted);
   const latest = useRef(wanted);
   latest.current = wanted;
   const latestDoc = useRef(doc);
   latestDoc.current = doc;
+  const latestKey = useRef(keyInUse);
+  latestKey.current = keyInUse;
+  // What MuseScore is working on now, so the same request isn't sent twice.
+  const inFlight = useRef<Source | null>(null);
 
   async function engrave() {
     const source = latest.current;
@@ -124,9 +143,10 @@ export function ScoreView(props: {
     }
     setState("engraving");
     setError(null);
+    inFlight.current = source;
     try {
       const view = await api.scoreView(
-        scoreRequest(latestDoc.current, source.notes, source.key),
+        scoreRequest(latestDoc.current, source.notes, latestKey.current),
       );
       if (id !== run.current || !content.current) return;
       // Drawn off to the side at full width, so the old score stays up until
@@ -158,18 +178,21 @@ export function ScoreView(props: {
       if (id !== run.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setState("error");
+    } finally {
+      if (id === run.current) inFlight.current = null;
     }
   }
 
   // Engrave when shown out of date: at once the first time, after a pause on edits.
   useEffect(() => {
-    if (!visible || !stale) return;
+    if (!visible || !stale || !keyReady) return;
+    if (sameSource(inFlight.current, wanted)) return;
     const wait = engraved && hasScore ? REFRESH_DELAY_MS : 0;
     const timer = setTimeout(() => void engrave(), wait);
     return () => clearTimeout(timer);
     // `engrave` reads the latest inputs through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, stale, notes, chosenKey, doc.meter, doc.beat_grid]);
+  }, [visible, stale, keyReady, notes, wanted.key, doc.meter, doc.beat_grid]);
 
   // A result still on its way no longer counts once the screen goes.
   useEffect(() => () => void ++run.current, []);
@@ -228,7 +251,16 @@ export function ScoreView(props: {
 
   const busy = state === "engraving";
   return (
-    <div className="absolute inset-0 flex flex-col bg-ink" hidden={!visible}>
+    // Hidden by visibility, not display, so a score arriving meanwhile is
+    // still laid out at its real width.
+    <div
+      className={
+        visible
+          ? "absolute inset-0 flex flex-col bg-ink"
+          : "pointer-events-none invisible absolute inset-0 flex flex-col bg-ink"
+      }
+      aria-hidden={!visible}
+    >
       <div className="flex h-10 shrink-0 items-center gap-3 border-b border-line px-3">
         <span
           role="status"

@@ -12,6 +12,8 @@ export type MeasureBox = {
   /** Left of the first note's space, after any clef, key or time signature. */
   x: number;
   width: number;
+  /** Width of that clef and signature area, left of `x`. */
+  lead: number;
   top: number;
   bottom: number;
 };
@@ -91,7 +93,8 @@ export function measureBoxes(
     const drawn = staves.filter((m): m is NonNullable<OsmdMeasure> =>
       Boolean(m),
     );
-    if (drawn.length === 0) return { x: 0, width: 0, top: 0, bottom: 0 };
+    if (drawn.length === 0)
+      return { x: 0, width: 0, lead: 0, top: 0, bottom: 0 };
     const first = drawn[0];
     const { x } = first.PositionAndShape.AbsolutePosition;
     const begin = first.beginInstructionsWidth || 0;
@@ -99,6 +102,7 @@ export function measureBoxes(
     const ys = drawn.map((m) => m.PositionAndShape.AbsolutePosition.y);
     return {
       x: (x + begin) * px,
+      lead: begin * px,
       width: Math.max(0, first.PositionAndShape.Size.width - begin - end) * px,
       top: Math.min(...ys) * px - PLAYHEAD_PAD,
       bottom: (Math.max(...ys) + STAFF_UNITS) * px + PLAYHEAD_PAD,
@@ -162,7 +166,7 @@ export function timeAt(
       y >= b.top &&
       y <= b.bottom &&
       x <= b.x + b.width &&
-      x >= b.x - 40,
+      x >= b.x - b.lead - 4,
   );
   if (i < 0 || i >= view.measures.length) return null;
   const box = boxes[i];

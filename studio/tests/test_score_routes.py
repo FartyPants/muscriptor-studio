@@ -238,3 +238,32 @@ class TestView:
         r = client.post("/studio/api/score/view", json=body())
         assert r.status_code == 503
         assert "MuseScore" in r.json()["detail"]
+
+
+class TestViewTiming:
+    def view(self, client, monkeypatch, json):
+        def fake(midi, out, quantized, key, chords):
+            Path(out).write_text(measures_xml(4))
+
+        monkeypatch.setattr("studio.app.write_musicxml", fake)
+        r = client.post("/studio/api/score/view", json=json)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_measures_sit_on_the_tracked_beats_not_the_smoothed_ones(self, client, monkeypatch):
+        # Late downbeats: smoothing pulls them about 0.1 s back towards the others.
+        beats = [i * 0.5 + (0.12 if i % 4 == 0 and i > 0 else 0) for i in range(25)]
+        grid = {**GRID, "steady": False, "beats": beats}
+        got = self.view(client, monkeypatch, {"notes": NOTES, "beat_grid": grid})
+        bars = [t for t in got["measures"] if t > -0.1][:3]
+        assert bars == pytest.approx([0, 2.12, 4.12], abs=0.005)
+
+    def test_a_rescaled_grid_uses_the_rescaled_beats(self, client, monkeypatch):
+        # Twice the beats per tracked beat: four of them fill one second.
+        beats = [i * 0.5 for i in range(25)]
+        grid = {**GRID, "steady": False, "beats": beats}
+        got = self.view(
+            client, monkeypatch, {"notes": NOTES, "beat_grid": grid, "options": {"beat_scale": 2}}
+        )
+        bars = [t for t in got["measures"] if t > -0.1][:3]
+        assert bars == pytest.approx([0, 1.0, 2.0], abs=0.01)

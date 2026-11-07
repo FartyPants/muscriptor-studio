@@ -172,6 +172,8 @@ export type RollGrid = { lines: GridLine[]; strips: { from: number; to: number }
 
 /** Bars of four, when the meter wasn't detected: a usable ruler beats none. */
 const DEFAULT_BEATS_PER_BAR = 4;
+/** The meters a user can choose, in beats per bar. */
+export const METERS = [2, 3, 4, 5, 6, 7, 8];
 /** Steps per beat, when no subdivision was measured. */
 const DEFAULT_STEPS = 4;
 const MIN_LABEL_PX = 42;

@@ -1,19 +1,21 @@
 import { describe, expect, it } from "vitest";
+import type { ProjectDoc } from "./api";
 import {
   measureAt,
   measureBoxes,
   positionAt,
   renamedParts,
+  scoreRequest,
   timeAt,
   type MeasureBox,
 } from "./score";
 
 const view = { measures: [0, 2, 4], end: 6 };
 const boxes: MeasureBox[] = [
-  { x: 100, width: 200, top: 0, bottom: 100 },
-  { x: 300, width: 200, top: 0, bottom: 100 },
-  // The next system.
-  { x: 100, width: 400, top: 150, bottom: 250 },
+  { x: 100, width: 200, lead: 0, top: 0, bottom: 100 },
+  { x: 300, width: 200, lead: 0, top: 0, bottom: 100 },
+  // The next system, behind its clef and signatures.
+  { x: 100, width: 400, lead: 90, top: 150, bottom: 250 },
 ];
 
 describe("measureAt", () => {
@@ -61,6 +63,8 @@ describe("timeAt", () => {
 
   it("takes a click on a clef as its measure's start", () => {
     expect(timeAt(view, boxes, 80, 200)).toBe(4);
+    expect(timeAt(view, boxes, 12, 200)).toBe(4);
+    expect(timeAt(view, boxes, 5, 200)).toBeNull();
   });
 
   it("ignores clicks between systems", () => {
@@ -83,7 +87,7 @@ describe("measureBoxes", () => {
       [[measure(10, 5, 30, 6), undefined, measure(10, 20, 30, 6)]],
       1,
     );
-    expect(box).toEqual({ x: 160, width: 240, top: 38, bottom: 252 });
+    expect(box).toEqual({ x: 160, width: 240, lead: 60, top: 38, bottom: 252 });
   });
 
   it("scales with zoom", () => {
@@ -110,5 +114,47 @@ describe("renamedParts", () => {
     expect(
       renamedParts("<part-name>Organ, Pipe, church organ</part-name>"),
     ).toBe("<part-name>Church organ</part-name>");
+  });
+});
+
+describe("scoreRequest", () => {
+  const grid = {
+    bpm: 120,
+    beats_per_bar: null,
+    first_downbeat: 0,
+    onset_delay: 0.1,
+    beat_subdivision: 4,
+    steady: false,
+    beats: [0, 0.5],
+  };
+  const doc = (meter: number | null, detected: number | null) =>
+    ({ beat_grid: { ...grid, beats_per_bar: detected }, meter }) as unknown as ProjectDoc;
+  const note = { id: "a", instrument: "acoustic_piano", pitch: 60, start: 1, end: 2 };
+
+  it("uses four beats a bar when none is detected or chosen", () => {
+    expect(scoreRequest(doc(null, null), [note], null).options).toEqual({
+      beats_per_bar: 4,
+      quantize: true,
+      fill_gaps: 0.25,
+      trim_leading_bars: false,
+    });
+  });
+
+  it("prefers the chosen meter to the detected one", () => {
+    expect(scoreRequest(doc(null, 3), [note], null).options.beats_per_bar).toBe(3);
+    expect(scoreRequest(doc(6, 3), [note], null).options.beats_per_bar).toBe(6);
+  });
+
+  it("sends stored times, the key in use and chords", () => {
+    const body = scoreRequest(doc(null, 3), [note], { tonic: 2, mode: "minor" });
+    expect(body.notes).toEqual([{ instrument: "acoustic_piano", pitch: 60, start: 1, end: 2 }]);
+    expect(body.key).toEqual({ tonic: 2, mode: "minor" });
+    expect(body.chords).toBe(true);
+    expect(body.beat_grid?.onset_delay).toBe(0.1);
+  });
+
+  it("leaves the bars to MuseScore without a beat grid", () => {
+    const none = { beat_grid: null, meter: null } as unknown as ProjectDoc;
+    expect(scoreRequest(none, [note], null).options).toEqual({});
   });
 });

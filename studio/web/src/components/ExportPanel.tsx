@@ -5,6 +5,7 @@ import { api, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
 import { displayName } from "../instruments";
 import { renderAudio } from "../renderAudio";
+import { METERS } from "../pianoroll";
 import { Button, Checkbox, Segmented, Select, SidePanel } from "./ui";
 
 const GRIDS = [
@@ -17,7 +18,6 @@ const GRIDS = [
   { value: 8, label: "1/32 notes" },
 ];
 
-const METERS = [2, 3, 4, 5, 6, 7, 8];
 
 type SheetFile = { name: string; bytes: Uint8Array<ArrayBuffer> };
 

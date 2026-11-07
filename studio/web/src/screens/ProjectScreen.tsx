@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
 import { ExportPanel } from "../components/ExportPanel";
 import { InstrumentDialog } from "../components/InstrumentDialog";
@@ -113,6 +114,21 @@ export function ProjectScreen({
     }
   };
 
+  // The key the transport shows, so the score and sheet music use it too.
+  const detectedKey = analysis?.key ?? null;
+  const keyInUse = useMemo<ChosenKey | null>(
+    () =>
+      doc?.key ??
+      (detectedKey
+        ? { tonic: detectedKey.tonic, mode: detectedKey.mode as ChosenKey["mode"] }
+        : null),
+    // By value: each analysis result is a new object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc?.key, detectedKey?.tonic, detectedKey?.mode],
+  );
+
+  const rollHiddenRef = useRef(false);
+  rollHiddenRef.current = view === "score";
   const transcribingRef = useRef(false);
   transcribingRef.current = phase === "transcribing";
   useRollFrame({
@@ -122,6 +138,7 @@ export function ProjectScreen({
     fillRef,
     labelRef,
     transcribingRef,
+    hiddenRef: rollHiddenRef,
     onFollowResumed: () => setUserScrolled(false),
   });
   useEditorKeys(audio, editorRef);
@@ -299,11 +316,15 @@ export function ProjectScreen({
             <ScoreView
               doc={doc}
               notes={notes}
-              chosenKey={doc.key ?? null}
+              keyInUse={keyInUse}
+              keyReady={Boolean(doc.key) || analysis !== null}
               audio={audio}
               visible={view === "score"}
               following={!userScrolled}
-              onUserScroll={() => setUserScrolled(true)}
+              onUserScroll={() => {
+                setUserScrolled(true);
+                rollRef.current?.unfollow();
+              }}
             />
           )}
         </div>
@@ -339,7 +360,7 @@ export function ProjectScreen({
           doc={doc}
           notes={project.store.current?.notes ?? notes}
           names={names}
-          chosenKey={doc.key ?? null}
+          chosenKey={keyInUse}
           hasChords={(analysis?.chords.length ?? 0) > 0}
           meter={doc.meter ?? doc.beat_grid?.beats_per_bar ?? 4}
           onMeter={(meter) =>

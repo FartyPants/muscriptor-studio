@@ -3,7 +3,7 @@ import { Crosshair, Info, Pause, Play, SkipBack, Timer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Analysis, ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
-import type { BeatGrid } from "../pianoroll";
+import { METERS, type BeatGrid } from "../pianoroll";
 import { IconButton, Popover, Segmented, Select, Toggle } from "./ui";
 
 export type ProjectView = "roll" | "score";
@@ -69,7 +69,6 @@ function KeyMenu(props: {
   );
 }
 
-const METERS = [2, 3, 4, 5, 6, 7, 8];
 const AUTO_METER = 0;
 
 function MeterMenu(props: {

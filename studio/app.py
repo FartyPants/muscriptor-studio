@@ -261,9 +261,12 @@ def create_studio_app(
             # measures, so time the measures by the tracked beats, as the roll
             # draws its bars and as the recording plays.
             raw = body.beat_grid.beats if body.beat_grid else None
-            tracked = np.asarray(raw) if raw and options.beat_scale == 1 else resolved.beats
-            downbeat = nearest(tracked, resolved.first_downbeat)
-            shift = round(float(timeline.beats_at(tracked[downbeat])))
+            written = resolved.beats
+            downbeat = nearest(written, resolved.first_downbeat)
+            shift = round(float(timeline.beats_at(resolved.first_downbeat)))
+            # Smoothing keeps one beat per tracked beat, so the indexes match.
+            same = raw is not None and options.beat_scale == 1 and len(raw) == len(written)
+            tracked = np.asarray(raw, dtype=float) if same else written
             timeline = Timeline(tracked, np.arange(len(tracked)) - downbeat + shift)
         return [round(float(timeline.seconds_at(b)), 4) for b in beats]
 
