@@ -115,13 +115,13 @@ export function StartScreen() {
         />
 
         {models && (
-          <div className="mt-5 flex flex-wrap items-start gap-4">
-            <div className="min-w-64 flex-1">
-              <ModelPicker models={models.models} value={size} onChange={setSize} />
+          <div className="mt-5">
+            <ModelPicker models={models.models} value={size} onChange={setSize} />
+            <div className="mt-4 flex justify-end">
+              <Button variant="primary" disabled={!file || status !== null} onClick={start}>
+                {status ?? "Continue"}
+              </Button>
             </div>
-            <Button variant="primary" disabled={!file || status !== null} onClick={start}>
-              {status ?? "Continue"}
-            </Button>
           </div>
         )}
 
