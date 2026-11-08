@@ -2,6 +2,12 @@
 
 Turn a recording into notes you can edit, hear and export. Studio is a local web interface built on [MuScriptor](https://github.com/muscriptor/muscriptor): a piano roll with note editing, sheet music with chord names, guitar and ukulele tablature and chord diagrams, MIDI, MusicXML and PDF export, and a library of your transcriptions.
 
+![The piano roll, with chords, instruments and playback](media/ddimage40.jpg)
+
+| Sheet music | Editing notes |
+|---|---|
+| ![The Score tab, with chord names and a playhead](media/ddimage41.jpg) | ![Editing one instrument's notes on the roll](media/ddimage42.jpg) |
+
 **Tested on Windows.** Everything runs on your own computer, from this folder: Python, the packages, MuseScore and the models all stay inside it.
 
 ## What you need
