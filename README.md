@@ -1,4 +1,4 @@
-# MuScriptor Studio
+# MuScriptor Studio (The Cranky Version)
 
 Turn a recording into notes you can edit, hear and export. Drop in an audio file, and Studio writes out what each instrument plays, as MIDI, sheet music, guitar or ukulele tablature, and PDFs. It all runs on your own computer.
 
