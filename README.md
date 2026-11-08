@@ -47,6 +47,8 @@ The models are free for non-commercial use, but their makers ask you to accept t
 3. Open <https://huggingface.co/settings/tokens> and click **Create new token**. Choose the type **Read**, give it any name, and click **Create token**.
 4. Click **Copy**, and keep that page open. You'll paste this token in Step 3.
 
+Would rather not make a token? Do items 1 and 2 only, then follow [Download the models without a token](#download-the-models-without-a-token).
+
 ### Step 2: Download Studio
 
 1. Open <https://github.com/FartyPants/muscriptor-studio>.
@@ -96,6 +98,26 @@ Not sure about your graphics card? Press **Ctrl + Shift + Esc**, click **Perform
 Double-click **start-studio.bat** in the same folder. Your browser opens Studio by itself. The first start can take a minute.
 
 Keep the black window open while you use Studio. Closing it stops Studio.
+
+### Download the models without a token
+
+You can skip the token and download the model files in your browser instead. You still need the free account and the accepted terms, so do items 1 and 2 of Step 1 and stay logged in to Hugging Face.
+
+1. Do Step 2 and Step 3. When Step 3 asks `Models to download`, type `tagger` and press **Enter**. It won't ask for a token, and it still installs everything else.
+2. Open `C:\muscriptor-studio-main\models`. For Medium or Small, right-click an empty space, choose **New**, then **Folder**, and name it `medium` or `small`. Large needs no new folder.
+3. In the browser where you're logged in, click both links for your model. Then move the two files from your Downloads folder to the place shown:
+
+   | Model | Download | Move it to |
+   |---|---|---|
+   | Medium | [model.safetensors](https://huggingface.co/MuScriptor/muscriptor-medium/resolve/main/model.safetensors?download=true) and [config.json](https://huggingface.co/MuScriptor/muscriptor-medium/resolve/main/config.json?download=true) | `models\medium\` |
+   | Small | [model.safetensors](https://huggingface.co/MuScriptor/muscriptor-small/resolve/main/model.safetensors?download=true) and [config.json](https://huggingface.co/MuScriptor/muscriptor-small/resolve/main/config.json?download=true) | `models\small\` |
+   | Large | [model.safetensors](https://huggingface.co/MuScriptor/muscriptor-large/resolve/main/model.safetensors?download=true) | `models\`, then rename it to `muscriptor-large.safetensors` |
+   | Large | [config.json](https://huggingface.co/MuScriptor/muscriptor-large/resolve/main/config.json?download=true) | `models\` |
+
+4. Want more than one model? Move the first model's files before downloading the next, because every model's files have the same names.
+5. Double-click **start-studio.bat**, as in Step 4.
+
+If a link shows an error instead of downloading, you aren't logged in, or you haven't accepted that model's terms yet.
 
 ## If something goes wrong
 
