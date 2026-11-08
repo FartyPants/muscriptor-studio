@@ -1,27 +1,9 @@
-import { ArrowLeft, AudioLines, FileAudio } from "lucide-react";
+import { ArrowLeft, AudioLines, FileAudio, Upload } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 import { api, type ModelSize, type ModelsState } from "../api";
-import { PALETTE } from "../colors";
 import { ModelPicker } from "../components/ModelPicker";
 import { Button } from "../components/ui";
-
-/** A strip of piano roll, to show at a glance what this tool makes. */
-const ROLL = [
-  [2, 1, 14, 0], [18, 1, 9, 0], [30, 3, 18, 1], [52, 1, 11, 0], [66, 2, 13, 2], [82, 0, 9, 3],
-  [6, 5, 10, 4], [20, 6, 7, 4], [31, 5, 12, 4], [47, 6, 16, 4], [68, 5, 15, 4], [86, 6, 11, 4],
-  [10, 8, 25, 2], [38, 9, 20, 5], [62, 8, 24, 2], [90, 9, 8, 5],
-];
-
-function RollStrip() {
-  return (
-    <svg viewBox="0 0 100 11" preserveAspectRatio="none" aria-hidden="true" className="block h-16 w-full">
-      {ROLL.map(([x, row, width, color], i) => (
-        <rect key={i} x={x} y={row} width={width} height={0.8} rx={0.2} fill={PALETTE[color]} opacity={0.75} />
-      ))}
-    </svg>
-  );
-}
 
 export function StartScreen() {
   const [models, setModels] = useState<ModelsState | null>(null);
@@ -83,20 +65,22 @@ export function StartScreen() {
             setFile(e.dataTransfer.files[0] ?? null);
           }}
           className={clsx(
-            "mt-6 block w-full overflow-hidden rounded-panel border text-left transition-colors",
-            dragging ? "border-accent bg-accent-soft" : "border-line-strong bg-panel hover:border-faint",
+            "mt-6 flex h-64 w-full flex-col items-center justify-center rounded-panel border-2 border-dashed px-6 text-center transition-colors",
+            dragging ? "border-accent bg-accent-soft" : "border-line-strong hover:border-faint hover:bg-panel",
           )}
         >
-          <span className="block px-5 pt-5 pb-4">
-            <span className="flex items-center gap-2 text-[15px] font-medium text-content">
-              <FileAudio size={18} className="text-muted" />
-              {file ? file.name : "Drop an audio file here"}
-            </span>
-            <span className="mt-0.5 block text-[13px] text-muted">
-              {file ? "Click to choose a different file" : "or click to choose one. MP3, WAV, FLAC, OGG and M4A all work."}
-            </span>
+          {file ? (
+            <FileAudio size={36} className="text-accent" />
+          ) : (
+            <Upload size={36} className={dragging ? "text-accent" : "text-muted"} />
+          )}
+          <span className="mt-3 max-w-full truncate text-lg font-medium text-content">
+            {file ? file.name : "Drop an audio file here"}
           </span>
-          <RollStrip />
+          <span className="mt-1 text-[13px] text-muted">
+            {file ? "Click to choose a different file" : "or click to browse"}
+          </span>
+          {!file && <span className="mt-3 text-xs text-faint">MP3, WAV, FLAC, OGG or M4A</span>}
         </button>
         <input
           ref={input}
