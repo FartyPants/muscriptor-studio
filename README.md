@@ -45,7 +45,6 @@ The models are free for non-commercial use, but their makers ask you to accept t
    - Small, for computers without an NVIDIA graphics card: <https://huggingface.co/MuScriptor/muscriptor-small>
    - Large, only with > 12 GB of graphics memory: <https://huggingface.co/MuScriptor/muscriptor-large> 
 3. Open <https://huggingface.co/settings/tokens> and click **Create new token**. Choose the type **Read**, give it any name, and click **Create token**.
-   (You can also download it directly instead of letting the install download it using token.) 
 4. Click **Copy**, and keep that page open. You'll paste this token in Step 3.
 
 ### Step 2: Download Studio
