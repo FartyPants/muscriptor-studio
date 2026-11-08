@@ -31,20 +31,21 @@ Turn a recording into notes you can edit, hear and export. Drop in an audio file
 | PDF and MusicXML with chord names | PDF and MusicXML from the command line | From the Export window |
 | Installs with one double-click | | Yes |
 
-## Install
+## Install for newbs
 
 No programming knowledge needed. You'll click through four steps. Allow **10 to 30 minutes** and **about 7 GB of free disk space**, more if you choose the Large model.
 
 ### Step 1: Get permission to download the models
 
-The models are free for non-commercial use, but their makers ask you to accept the licence on a site called Hugging Face.
+The models are free for non-commercial use, but their makers ask you to accept the licence on Hugging Face.
 
-1. Create a free account at <https://huggingface.co/join>, and log in.
+1. Create a free account at <https://huggingface.co/join> if you don't already have one, and log in.
 2. Open the page of each transcription model you want and accept its terms. It says "You need to agree to share your Hugging Face information to access this model": click the button below that text. If you're not sure which to get, use Medium:
-   - Medium (recommended): <https://huggingface.co/MuScriptor/muscriptor-medium>
+   - Medium (highly recommended): <https://huggingface.co/MuScriptor/muscriptor-medium> works fast and reliable on < 3GB GPU.
    - Small, for computers without an NVIDIA graphics card: <https://huggingface.co/MuScriptor/muscriptor-small>
-   - Large, only with 12 GB of graphics memory: <https://huggingface.co/MuScriptor/muscriptor-large>
+   - Large, only with > 12 GB of graphics memory: <https://huggingface.co/MuScriptor/muscriptor-large> 
 3. Open <https://huggingface.co/settings/tokens> and click **Create new token**. Choose the type **Read**, give it any name, and click **Create token**.
+   (You can also download it directly instead of letting the install download it using token.) 
 4. Click **Copy**, and keep that page open. You'll paste this token in Step 3.
 
 ### Step 2: Download Studio
@@ -350,8 +351,7 @@ weights are downloaded and cached automatically. The architecture is a transform
 | `large` | 1.4B | 48 | 1536 | [muscriptor-large](https://huggingface.co/MuScriptor/muscriptor-large) |
 
 `small` is the practical choice on CPU-only machines, `medium` is the default
-speed/accuracy trade-off, and `large` is the most accurate but really wants a
-GPU. On Apple Silicon the model runs on Metal (MPS) automatically.
+speed/accuracy trade-off, and `large` is the most accurate but really wants a high memory GPU. On Apple Silicon the model runs on Metal (MPS) automatically.
 
 ## Developing
 
