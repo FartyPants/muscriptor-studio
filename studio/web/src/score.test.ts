@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectDoc } from "./api";
 import {
+  audibleNotes,
   isStaleBuild,
   measureAt,
   measureBoxes,
@@ -171,5 +172,23 @@ describe("isStaleBuild", () => {
   it("leaves other failures to the error message", () => {
     expect(isStaleBuild(new Error("MuseScore is not installed"))).toBe(false);
     expect(isStaleBuild(new TypeError("Failed to fetch"))).toBe(false);
+  });
+});
+
+describe("audibleNotes", () => {
+  const n = (id: string, instrument: string) => ({ id, instrument, pitch: 60, start: 0, end: 1 });
+  const notes = [n("a", "flutes"), n("b", "drums"), n("c", "violin")];
+
+  it("keeps everything when nothing is silenced, as the same array", () => {
+    expect(audibleNotes(notes, new Set(), new Set())).toBe(notes);
+  });
+
+  it("leaves out muted tracks", () => {
+    expect(audibleNotes(notes, new Set(["drums"]), new Set()).map((x) => x.id)).toEqual(["a", "c"]);
+  });
+
+  it("lets a solo win over mutes, as playback does", () => {
+    const ids = audibleNotes(notes, new Set(["violin"]), new Set(["violin", "flutes"])).map((x) => x.id);
+    expect(ids).toEqual(["a", "c"]);
   });
 });

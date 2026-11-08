@@ -89,7 +89,10 @@ async function draw(host: HTMLElement, view: View): Promise<MeasureBox[]> {
 /** The notes as sheet music, with a playhead. Engraves again after changes. */
 export function ScoreView(props: {
   doc: ProjectDoc;
+  /** The audible notes: muted tracks are left out. */
   notes: ProjectNote[];
+  /** True when the song has notes but every track is muted. */
+  silenced: boolean;
   /** The key in use, chosen or detected, so the score agrees with the transport. */
   keyInUse: ChosenKey | null;
   /** False until the key in use is known, so the first score isn't engraved twice. */
@@ -99,7 +102,7 @@ export function ScoreView(props: {
   following: boolean;
   onUserScroll: () => void;
 }) {
-  const { doc, notes, keyInUse, keyReady, audio, visible, following } = props;
+  const { doc, notes, silenced, keyInUse, keyReady, audio, visible, following } = props;
   const { onUserScroll } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -326,8 +329,9 @@ export function ScoreView(props: {
       >
         {notes.length === 0 && (
           <p className="px-6 py-10 text-[13px] text-muted">
-            There are no notes to show yet. The score appears here once the song
-            has notes.
+            {silenced
+              ? "Every track is muted, so the score is empty."
+              : "There are no notes to show yet. The score appears here once the song has notes."}
           </p>
         )}
         <div

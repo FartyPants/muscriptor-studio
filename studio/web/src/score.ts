@@ -182,3 +182,13 @@ export function timeAt(
 export const isStaleBuild = (e: unknown) =>
   e instanceof TypeError &&
   /dynamically imported module|Importing a module script failed/i.test(e.message);
+
+/** The notes playback lets through: a solo silences every other track, else mutes do. */
+export function audibleNotes(
+  notes: ProjectNote[],
+  muted: Set<string>,
+  solo: Set<string>,
+): ProjectNote[] {
+  if (solo.size === 0 && muted.size === 0) return notes;
+  return notes.filter((n) => (solo.size > 0 ? solo.has(n.instrument) : !muted.has(n.instrument)));
+}

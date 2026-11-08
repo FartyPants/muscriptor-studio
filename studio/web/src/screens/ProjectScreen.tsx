@@ -22,6 +22,7 @@ import {
   type PianoRoll,
 } from "../pianoroll";
 import { ProgressEstimator } from "../progress";
+import { audibleNotes } from "../score";
 
 const DISPLAY_KEY = "studio.display";
 const VIEW_KEY = "studio.view";
@@ -127,6 +128,9 @@ export function ProjectScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [doc?.key, detectedKey?.tonic, detectedKey?.mode],
   );
+
+  // The score shows what playback lets through.
+  const scoreNotes = useMemo(() => audibleNotes(notes, muted, solo), [notes, muted, solo]);
 
   const rollHiddenRef = useRef(false);
   rollHiddenRef.current = view === "score";
@@ -330,7 +334,8 @@ export function ProjectScreen({
           {doc && phase === "ready" && (
             <ScoreView
               doc={doc}
-              notes={notes}
+              notes={scoreNotes}
+              silenced={notes.length > 0 && scoreNotes.length === 0}
               keyInUse={keyInUse}
               keyReady={Boolean(doc.key) || analysis !== null}
               audio={audio}
