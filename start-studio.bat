@@ -17,8 +17,7 @@ if /i "%~1"=="large" set "MODEL=--model large"
 if /i "%~1"=="medium" set "MODEL=--model medium"
 if /i "%~1"=="small" set "MODEL=--model small"
 
-if not defined MUSCRIPTOR_MUSESCORE set "MUSCRIPTOR_MUSESCORE=C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
-set "PYTHONIOENCODING=utf-8"
+call "%~dp0env.bat"
 
 curl.exe -sf -o nul --max-time 2 "%URL%studio/api/models"
 if not errorlevel 1 (
