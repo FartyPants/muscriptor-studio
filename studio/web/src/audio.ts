@@ -73,6 +73,15 @@ type NoteOpts = {
   end: number;
 };
 
+/** Fade at each end of a looped pass of the audio, so the join doesn't click. */
+const LOOP_FADE = 0.004;
+
+/**
+ * How far before a bar line a note still counts as on it. Played notes rarely
+ * land exactly on the line, and a loop mustn't lose its first downbeat.
+ */
+const LOOP_EDGE = 0.03;
+
 export class AudioEngine {
   private ctx!: AudioContext;
   private synth: WorkletSynthesizer | null = null;
@@ -97,6 +106,10 @@ export class AudioEngine {
   private wavPanner: StereoPannerNode;
   private midiPanner: StereoPannerNode;
   private mutedInstruments = new Set<string>();
+  /** The section playback repeats, or null. */
+  private loop: { start: number; end: number } | null = null;
+  /** The transport tick the loop starts on. */
+  private loopFirstTick = 0;
   /** Metronome clicks. Always scheduled, so turning it on takes effect at once. */
   private clicks: Click[] = [];
   private metronomeOn = false;
@@ -130,6 +143,13 @@ export class AudioEngine {
     // raw WAV buffer source must be torn down here too; "start" re-creates it at
     // the paused offset when playback resumes.
     Tone.getTransport().on("pause", () => this.stopWavSource());
+    // Going round a loop isn't a "start", so the audio is restarted here.
+    Tone.getTransport().on("loopStart", (time: number, offset: number) => {
+      // The last pass ends by itself at the join. Stopping it would cut it
+      // short, because this runs ahead of the audio.
+      this.wavSource = null;
+      this.startWavSource(time, offset);
+    });
   }
 
   /** Load the worklet + soundfont, then flush notes queued in the meantime. */
@@ -285,18 +305,37 @@ export class AudioEngine {
     }
   }
 
-  private startWavSource(at: number) {
+  private startWavSource(at: number, from?: number) {
     this.stopWavSource();
     if (!this.wavBuffer) return;
     // It's important to use .getSecondsAtTime() and not .seconds because otherwise we get
     // a random ~25ms desync between the wav and the transcription
-    const offset = Tone.getTransport().getSecondsAtTime(at);
+    const offset = from ?? Tone.getTransport().getSecondsAtTime(at);
     if (offset >= this.wavBuffer.duration) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this.wavBuffer;
-    src.connect(this.wavGain);
-    src.start(at, offset);
+    if (this.loop) {
+      const length = this.loop.end - offset;
+      src.connect(this.loopFade(src, at, length));
+      src.start(at, offset, length);
+    } else {
+      src.connect(this.wavGain);
+      src.start(at, offset);
+    }
     this.wavSource = src;
+  }
+
+  /** A gain that fades one pass of the loop in and out. */
+  private loopFade(src: AudioBufferSourceNode, at: number, length: number): GainNode {
+    const fade = this.ctx.createGain();
+    const ramp = Math.min(LOOP_FADE, length / 2);
+    fade.gain.setValueAtTime(0, at);
+    fade.gain.linearRampToValueAtTime(1, at + ramp);
+    fade.gain.setValueAtTime(1, at + length - ramp);
+    fade.gain.linearRampToValueAtTime(0, at + length);
+    fade.connect(this.wavGain);
+    src.onended = () => fade.disconnect();
+    return fade;
   }
 
   private stopWavSource() {
@@ -347,8 +386,29 @@ export class AudioEngine {
     this.clickLevel = level;
   }
 
+  /** Run `callback` at transport time `when`: on every pass, inside a loop. */
+  private at(callback: (time: number) => void, when: number) {
+    const transport = Tone.getTransport();
+    if (this.loop) {
+      const tick = Math.max(this.loopFirstTick, Math.floor(transport.toTicks(when)));
+      transport.schedule(callback, `${tick}i`);
+    } else {
+      transport.scheduleOnce(callback, when);
+    }
+  }
+
+  private inLoop(seconds: number): boolean {
+    return this.loop !== null && seconds >= this.loop.start && seconds < this.loop.end;
+  }
+
+  /** Whether something at `seconds` plays in the loop's section. */
+  private belongsToLoop(seconds: number): boolean {
+    return this.loop !== null && seconds >= this.loop.start - LOOP_EDGE && seconds < this.loop.end - LOOP_EDGE;
+  }
+
   private scheduleClick(click: Click) {
-    Tone.getTransport().scheduleOnce((time) => {
+    if (this.loop && !this.belongsToLoop(click.time)) return;
+    this.at((time) => {
       if (!this.metronomeOn || this.clickLevel <= 0) return;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
@@ -382,17 +442,21 @@ export class AudioEngine {
       this.pendingNotes.push(opts);
       return;
     }
+    if (this.loop && !this.belongsToLoop(opts.start)) return;
     const synth = this.synth;
     const channel = this.channelFor(opts.instrument);
     this.warmNote(opts.instrument, opts.pitch);
-    const duration = Math.max(0.05, opts.end - opts.start);
+    // A note crossing the end of a loop stops there, not in the next pass.
+    const end = this.loop ? Math.min(opts.end, this.loop.end) : opts.end;
+    const start = this.loop ? Math.max(opts.start, this.loop.start) : opts.start;
+    const duration = Math.max(0.05, end - start);
     // The callback fires slightly ahead of the audio time; passing `time`
     // through lets the worklet apply both events sample-accurately. Pairing
     // the noteOff with its noteOn also guarantees no stuck notes.
-    Tone.getTransport().scheduleOnce((time) => {
+    this.at((time) => {
       synth.noteOn(channel, opts.pitch, NOTE_VELOCITY, { time });
       synth.noteOff(channel, opts.pitch, { time: time + duration });
-    }, opts.start);
+    }, start);
   }
 
   /** Resume the AudioContext. Must be called from a user-gesture handler. */
@@ -403,13 +467,13 @@ export class AudioEngine {
   async play() {
     await Tone.start();
     const t = Tone.getTransport();
-    // If we're at the very start, every previously-fired scheduleOnce is gone;
-    // re-schedule every known note (and the auto-stop) from scratch.
-    if (t.seconds < 0.001) {
+    if (this.loop && !this.inLoop(t.seconds)) {
+      this.seek(this.loop.start);
+    } else if (t.seconds < 0.001) {
+      // If we're at the very start, every previously-fired scheduleOnce is gone;
+      // re-schedule every known note (and the auto-stop) from scratch.
       t.cancel();
-      for (const n of this.allNotes) this.scheduleNoteRaw(n);
-      for (const c of this.clicks) this.scheduleClick(c);
-      if (this.autoStopAt !== null) this.scheduleStopRaw(this.autoStopAt);
+      this.scheduleFrom(0);
     }
     t.start();
   }
@@ -422,26 +486,53 @@ export class AudioEngine {
   /** Jump the transport to `seconds`, re-scheduling notes from that point. */
   seek(seconds: number) {
     const t = Tone.getTransport();
-    const target = Math.max(0, seconds);
     const wasPlaying = t.state === "started";
+    let target = Math.max(0, seconds);
+    // Playing stays inside the section. Paused, the playhead can go anywhere,
+    // and Play comes back to the section.
+    if (this.loop && wasPlaying && !this.inLoop(target)) target = this.loop.start;
     if (wasPlaying) t.pause();
     this.synth?.stopAll();
     // scheduleOnce events are one-shot, so a jump (especially backwards) needs
     // a full re-schedule of everything that starts after the new position.
     t.cancel();
     t.seconds = target;
+    this.scheduleFrom(target);
+    // Restarting the transport re-fires the "start" handler, which restarts
+    // the WAV source at the new offset.
+    if (wasPlaying) t.start();
+  }
+
+  /** Schedule what plays from `target` on: a loop needs all of its section. */
+  private scheduleFrom(target: number) {
+    const first = this.loop ? this.loop.start - LOOP_EDGE : target;
     for (const n of this.allNotes) {
-      if (n.start >= target) this.scheduleNoteRaw(n);
+      if (n.start >= first) this.scheduleNoteRaw(n);
     }
     for (const c of this.clicks) {
-      if (c.time >= target) this.scheduleClick(c);
+      if (c.time >= first) this.scheduleClick(c);
     }
     if (this.autoStopAt !== null && this.autoStopAt > target) {
       this.scheduleStopRaw(this.autoStopAt);
     }
-    // Restarting the transport re-fires the "start" handler, which restarts
-    // the WAV source at the new offset.
-    if (wasPlaying) t.start();
+  }
+
+  /** Repeat `section` while playing, or play straight through with null. */
+  setLoop(section: { start: number; end: number } | null) {
+    if (!section && !this.loop) return;
+    const t = Tone.getTransport();
+    this.loop = null;
+    if (section) {
+      // Whole ticks: after going round, Tone looks for events at exactly the
+      // loop's start tick, and a fractional one matches nothing.
+      const tick = 60 / (t.bpm.value * t.PPQ);
+      this.loopFirstTick = Math.floor(section.start / tick);
+      const lastTick = Math.ceil(section.end / tick);
+      this.loop = { start: this.loopFirstTick * tick, end: lastTick * tick };
+      t.setLoopPoints(`${this.loopFirstTick}i`, `${lastTick}i`);
+    }
+    t.loop = section !== null;
+    this.seek(t.seconds);
   }
 
   /** Move the transport clock only — a cheap per-frame seek for live
@@ -462,6 +553,8 @@ export class AudioEngine {
   /** Wipe scheduled state for a brand-new transcription. */
   reset() {
     this.stop();
+    this.loop = null;
+    Tone.getTransport().loop = false;
     this.allNotes = [];
     this.pendingNotes = [];
     this.clicks = [];
@@ -482,6 +575,7 @@ export class AudioEngine {
   }
 
   private scheduleStopRaw(at: number) {
+    if (this.loop) return;
     Tone.getTransport().scheduleOnce(() => {
       Tone.getTransport().stop();
       Tone.getTransport().seconds = 0;

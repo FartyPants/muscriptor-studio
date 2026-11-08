@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
 import { ExportPanel } from "../components/ExportPanel";
@@ -96,6 +96,7 @@ export function ProjectScreen({
   const [active, setActive] = useState<string | null>(null);
   const [userScrolled, setUserScrolled] = useState(false);
   const [range, setRange] = useState<Range | null>(null);
+  const [loopOn, setLoopOn] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [redo, setRedo] = useState<"all" | "range" | null>(null);
   const [chosenView, setChosenView] = useState(loadView);
@@ -154,7 +155,17 @@ export function ProjectScreen({
     hiddenRef: rollHiddenRef,
     onFollowResumed: () => setUserScrolled(false),
   });
-  useEditorKeys(audio, editorRef);
+  const hasRange = range !== null;
+  const toggleLoop = useCallback(() => {
+    if (hasRange) setLoopOn((on) => !on);
+  }, [hasRange]);
+  useEditorKeys(audio, editorRef, toggleLoop);
+
+  const looping = loopOn && hasRange;
+  useEffect(() => {
+    audio.setLoop(looping ? range : null);
+    rollRef.current?.setLooping(looping);
+  }, [audio, looping, range]);
 
   const names = useMemo(
     () =>
@@ -190,6 +201,7 @@ export function ProjectScreen({
     request: Parameters<typeof project.retranscribe>[1],
   ) => {
     const target = redo === "range" ? range : null;
+    setLoopOn(false);
     editorRef.current?.setEnabled(false);
     setEditing(false);
     setRedo(null);
@@ -246,7 +258,7 @@ export function ProjectScreen({
           phase === "ready" && !working ? () => setShowExport(true) : null
         }
         onRetranscribe={phase === "ready" && !working ? setRedo : null}
-        hasRange={range !== null}
+        hasRange={hasRange}
       />
       <Transport
         audio={audio}
@@ -268,6 +280,8 @@ export function ProjectScreen({
           rollRef.current?.follow();
           setUserScrolled(false);
         }}
+        looping={looping}
+        onLoop={hasRange ? toggleLoop : null}
         view={view}
         onView={phase === "ready" ? chooseView : null}
       />
@@ -350,7 +364,15 @@ export function ProjectScreen({
                 audio={audio}
                 display={display}
                 setUserScrolled={setUserScrolled}
-                onRange={setRange}
+                onRange={(chosen) => {
+                  setRange(chosen);
+                  if (!chosen) {
+                    // Now, not in the effect: this click's jump comes next,
+                    // and a loop still running would hold it in the section.
+                    audio.setLoop(null);
+                    setLoopOn(false);
+                  }
+                }}
               />
             </div>
             <RollScrollbar

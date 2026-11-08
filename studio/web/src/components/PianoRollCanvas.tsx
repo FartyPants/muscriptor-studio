@@ -108,7 +108,9 @@ export function PianoRollCanvas(props: {
         const end = audio.duration || Infinity;
         const to = Math.min(end, Math.max(0, roll.xToSeconds(x)));
         const from = Math.min(end, ruler.from);
-        rulerRange = { start: Math.min(from, to), end: Math.max(from, to) };
+        const free = { start: Math.min(from, to), end: Math.max(from, to) };
+        const section = e.altKey ? free : roll.snapToBars(from, to);
+        rulerRange = { start: section.start, end: Math.min(end, section.end) };
         roll.setRange(rulerRange);
         return;
       }
@@ -136,7 +138,9 @@ export function PianoRollCanvas(props: {
       // Hint the gesture with a resize cursor while hovering the key strip.
       const hoverX = e.clientX - rect.left;
       const onRuler = hoverX >= KEY_WIDTH && e.clientY - rect.top < RULER_H;
-      canvas.title = onRuler ? "Click to jump here. Drag to choose a range to re-transcribe." : "";
+      canvas.title = onRuler
+        ? "Click to jump here. Drag to choose bars to loop or re-transcribe. Hold Alt to drag freely."
+        : "";
       canvas.style.cursor =
         hoverX < KEY_WIDTH
           ? "ew-resize"

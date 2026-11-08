@@ -226,6 +226,30 @@ export function musicalGrid(grid: BeatGrid, from: number, to: number, pxPerSec: 
   return { lines, strips };
 }
 
+/**
+ * The whole bars nearest a drag from `from` to `to` seconds. A drag that would
+ * collapse to nothing takes the bar under its middle.
+ */
+export function barSpan(grid: BeatGrid, from: number, to: number): { start: number; end: number } {
+  const clock = beatClock(grid);
+  const perBar = grid.beats_per_bar ?? DEFAULT_BEATS_PER_BAR;
+  const barAt = (t: number) => Math.floor(clock.indexAt(t) / perBar);
+  const barTime = (bar: number) => clock.timeOf(bar * perBar);
+  const nearest = (t: number) => {
+    const bar = barAt(t);
+    return t - barTime(bar) < barTime(bar + 1) - t ? bar : bar + 1;
+  };
+  const low = Math.min(from, to);
+  const high = Math.max(from, to);
+  let first = nearest(low);
+  let last = nearest(high);
+  if (last <= first) {
+    first = barAt((low + high) / 2);
+    last = first + 1;
+  }
+  return { start: Math.max(0, barTime(first)), end: barTime(last) };
+}
+
 /** Whole seconds, spaced so the labels never crowd. */
 export function secondsGrid(from: number, to: number, pxPerSec: number): RollGrid {
   const every = [1, 2, 5, 10, 15, 30, 60, 120, 300].find((s) => s * pxPerSec >= 60) ?? 600;
@@ -372,6 +396,7 @@ export class PianoRoll {
   /** The key to show on the pitch rows, or null for the usual lanes. */
   private keyLanes: { tonic: number; scale: Set<number> } | null = null;
   private range: { start: number; end: number } | null = null;
+  private looping = false;
   private lastRowH = 1;
   private lastPitchTop = DEFAULT_PITCH_TOP;
 
@@ -434,6 +459,17 @@ export class PianoRoll {
   /** The time span chosen on the ruler, or null. */
   setRange(range: { start: number; end: number } | null) {
     this.range = range;
+  }
+
+  /** Whether playback is repeating the chosen span, which the ruler then shows. */
+  setLooping(looping: boolean) {
+    this.looping = looping;
+  }
+
+  /** A drag on the ruler, moved onto the bars when the timeline shows bars. */
+  snapToBars(from: number, to: number): { start: number; end: number } {
+    if (this.display.timeUnit === "bars" && this.beatGrid) return barSpan(this.beatGrid, from, to);
+    return { start: Math.min(from, to), end: Math.max(from, to) };
   }
 
   /** Height of the ruler and chord bar across the top. */
@@ -1059,7 +1095,7 @@ export class PianoRoll {
     if (this.range) {
       const from = KEY_WIDTH + (this.range.start - offsetSec) * pxPerSec;
       const to = KEY_WIDTH + (this.range.end - offsetSec) * pxPerSec;
-      ctx.fillStyle = "rgba(143, 168, 255, 0.45)";
+      ctx.fillStyle = this.looping ? "#8fa8ff" : "rgba(143, 168, 255, 0.45)";
       ctx.fillRect(from, RULER_H - 4, to - from, 4);
     }
     ctx.font = `500 11px ${palette().bodyFont}`;

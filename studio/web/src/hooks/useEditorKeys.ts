@@ -4,13 +4,21 @@ import { Autosaver } from "../editor/autosave";
 import type { RollEditor } from "../editor/rollEditor";
 
 /** The keyboard on the project screen, and the warning before leaving unsaved work. */
-export function useEditorKeys(audio: AudioEngine, editorRef: RefObject<RollEditor | null>) {
+export function useEditorKeys(
+  audio: AudioEngine,
+  editorRef: RefObject<RollEditor | null>,
+  toggleLoop: () => void,
+) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest("input, textarea, select")) return;
       // The roll is behind an open dialog, so its keys are too.
       if (document.querySelector('[role="dialog"]')) return;
+      if (e.key.toLowerCase() === "l" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (!e.repeat) toggleLoop();
+        return;
+      }
       if (editorRef.current?.key(e)) e.preventDefault();
     };
     // Space is the transport's, so it can't press whatever was clicked last. It
@@ -52,5 +60,5 @@ export function useEditorKeys(audio: AudioEngine, editorRef: RefObject<RollEdito
       window.removeEventListener("pointerup", onRelease);
       window.removeEventListener("beforeunload", onLeave);
     };
-  }, [audio, editorRef]);
+  }, [audio, editorRef, toggleLoop]);
 }

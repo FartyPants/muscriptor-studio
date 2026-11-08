@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Crosshair, Info, Pause, Play, SkipBack, Timer } from "lucide-react";
+import { Crosshair, Info, Pause, Play, Repeat, SkipBack, Timer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Analysis, ChosenKey } from "../api";
 import type { AudioEngine } from "../audio";
@@ -183,6 +183,9 @@ export function Transport(props: {
   following: boolean;
   onFollow: (on: boolean) => void;
   onRestart: () => void;
+  looping: boolean;
+  /** Null until a section is chosen on the timeline. */
+  onLoop: (() => void) | null;
   view: ProjectView;
   /** Null while there is no score to show. */
   onView: ((view: ProjectView) => void) | null;
@@ -195,6 +198,8 @@ export function Transport(props: {
     following,
     onFollow,
     onRestart,
+    looping,
+    onLoop,
     view,
     onView,
   } = props;
@@ -248,6 +253,19 @@ export function Transport(props: {
         >
           <Crosshair size={15} />
           Follow
+        </Toggle>
+        <Toggle
+          title={
+            onLoop
+              ? "Repeat the chosen section (L)"
+              : "Drag on the piano roll's timeline to choose bars to repeat"
+          }
+          pressed={looping}
+          disabled={!onLoop}
+          onClick={() => onLoop?.()}
+        >
+          <Repeat size={15} />
+          Loop
         </Toggle>
       </div>
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { musicalGrid, secondsGrid, type BeatGrid } from "./pianoroll";
+import { barSpan, musicalGrid, secondsGrid, type BeatGrid } from "./pianoroll";
 
 const grid = (over: Partial<BeatGrid> = {}): BeatGrid => ({
   bpm: 120,
@@ -109,5 +109,41 @@ describe("secondsGrid", () => {
 
   it("has no bar shading", () => {
     expect(secondsGrid(0, 10, 80).strips).toEqual([]);
+  });
+});
+
+describe("barSpan", () => {
+  // 120 BPM in 4/4 from 1 s: bars of 2 s, starting at 1, 3, 5, 7.
+  const steady = grid({ first_downbeat: 1 });
+
+  it("takes the nearest bar lines", () => {
+    expect(barSpan(steady, 3.3, 6.8)).toEqual({ start: 3, end: 7 });
+  });
+
+  it("doesn't care which way the drag went", () => {
+    expect(barSpan(steady, 6.8, 3.3)).toEqual({ start: 3, end: 7 });
+  });
+
+  it("gives a drag inside one bar that bar", () => {
+    expect(barSpan(steady, 3.2, 3.5)).toEqual({ start: 3, end: 5 });
+  });
+
+  it("gives a short drag across a bar line the bar under its middle", () => {
+    expect(barSpan(steady, 4.9, 5.2)).toEqual({ start: 5, end: 7 });
+  });
+
+  it("never starts before the audio", () => {
+    expect(barSpan(steady, 0, 0.4).start).toBe(0);
+  });
+
+  it("follows the tracked beats on an unsteady grid", () => {
+    const unsteady = grid({
+      bpm: 100,
+      first_downbeat: 1,
+      beats_per_bar: 2,
+      steady: false,
+      beats: [1, 1.5, 2.2, 2.6, 3.4, 3.9],
+    });
+    expect(barSpan(unsteady, 2.1, 3.5)).toEqual({ start: 2.2, end: 3.4 });
   });
 });
