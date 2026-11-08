@@ -86,7 +86,12 @@ class ProjectStore:
         return doc
 
     def get(self, project_id: str) -> dict[str, Any]:
-        path = self._dir(project_id)
+        with self._lock:
+            return self._read(self._dir(project_id))
+
+    @staticmethod
+    def _read(path: Path) -> dict[str, Any]:
+        # Under the lock: on Windows a reader makes a save's replace fail.
         return json.loads((path / "project.json").read_text(encoding="utf-8"))
 
     def list(self) -> list[dict[str, Any]]:
@@ -95,7 +100,8 @@ class ProjectStore:
         if self.root.is_dir():
             for path in self.root.glob("*/project.json"):
                 try:
-                    doc = json.loads(path.read_text(encoding="utf-8"))
+                    with self._lock:
+                        doc = self._read(path.parent)
                 except (OSError, json.JSONDecodeError):
                     continue
                 if "duration" not in doc:
@@ -109,10 +115,15 @@ class ProjectStore:
         """Read an older project's audio length, once, and keep it."""
         length = _audio_length(path / doc.get("audio_file", ""))
         # Outside the lock: an MP3 can take seconds to measure.
-        with self._lock:
-            current = json.loads((path / "project.json").read_text(encoding="utf-8"))
-            current["duration"] = length
-            self._write_unlocked(path, current)
+        try:
+            with self._lock:
+                current = self._read(path)
+                current["duration"] = length
+                self._write_unlocked(path, current)
+        except OSError:
+            # Deleted meanwhile, or busy. One project must not stop the list:
+            # the next list measures it again.
+            pass
         return length
 
     @staticmethod
@@ -123,9 +134,9 @@ class ProjectStore:
             return 0
 
     def put(self, project_id: str, doc: dict[str, Any]) -> dict[str, Any]:
-        path = self._dir(project_id)
         with self._lock:
-            current = json.loads((path / "project.json").read_text(encoding="utf-8"))
+            path = self._dir(project_id)
+            current = self._read(path)
             merged = {
                 **{k: v for k, v in doc.items() if k not in _SERVER_FIELDS},
                 # Not every field is in an older project yet.
@@ -137,9 +148,9 @@ class ProjectStore:
 
     def mark_opened(self, project_id: str) -> None:
         """Note that the project was opened. Opening isn't a change to it."""
-        path = self._dir(project_id)
         with self._lock:
-            current = json.loads((path / "project.json").read_text(encoding="utf-8"))
+            path = self._dir(project_id)
+            current = self._read(path)
             current["opened"] = time.time()
             self._write_unlocked(path, current)
 
@@ -149,11 +160,11 @@ class ProjectStore:
         The folder is moved out in one step first, so a file in use can only
         stop the whole delete, never leave half a project.
         """
-        path = self._dir(project_id)
         trash = self.root.parent / "trash"
-        trash.mkdir(parents=True, exist_ok=True)
         target = trash / project_id
         with self._lock:
+            path = self._dir(project_id)
+            trash.mkdir(parents=True, exist_ok=True)
             shutil.rmtree(target, ignore_errors=True)
             try:
                 os.replace(path, target)

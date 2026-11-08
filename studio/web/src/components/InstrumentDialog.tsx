@@ -14,9 +14,9 @@ export function InstrumentDialog(props: {
       title="Which instruments play in this song?"
       subtitle="Transcription listens only for the instruments you list. Not sure? Detect them, or let the model decide."
       closeButtonOnly
-      closeLabel="Back to projects"
+      closeLabel="Back to library"
       onClose={() => {
-        window.location.hash = "#/new";
+        window.location.hash = "#/";
       }}
     >
       <InstrumentChooser

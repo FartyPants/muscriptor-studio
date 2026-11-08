@@ -138,6 +138,21 @@ describe("Autosaver when the project is gone", () => {
   beforeEach(() => void vi.useFakeTimers());
   afterEach(() => void vi.useRealTimers());
 
+  it("has words for the places that show the error itself", () => {
+    expect(new ProjectGoneError().message).toContain("deleted");
+  });
+
+  it("holds nothing back from leaving the page", async () => {
+    const { saver, spy } = setup(() => Promise.reject(new ProjectGoneError()));
+    saver.changed();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(Autosaver.anyUnsaved).toBe(false);
+    await saver.flush();
+    saver.close();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it("stops trying, and has nothing left to lose", async () => {
     const { saver, spy, states } = setup(() => Promise.reject(new ProjectGoneError()));
     saver.changed();

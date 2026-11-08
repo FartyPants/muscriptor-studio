@@ -156,7 +156,8 @@ export const api = {
 
   async deleteProject(id: string) {
     const resp = await fetch(`/studio/api/projects/${id}`, { method: "DELETE" });
-    if (!resp.ok) throw new Error(await errorDetail(resp));
+    // Already gone, perhaps from another tab: what was asked for has happened.
+    if (!resp.ok && resp.status !== 404) throw new Error(await errorDetail(resp));
   },
 
   beatGrid: (id: string, onsets: number[]) =>

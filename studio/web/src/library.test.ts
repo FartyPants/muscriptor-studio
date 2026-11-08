@@ -5,6 +5,7 @@ import {
   formatSize,
   isReady,
   matchesSearch,
+  noteCount,
   pageOf,
   sortByOpened,
   statusOf,
@@ -97,6 +98,13 @@ describe("formatSize", () => {
   it("reads in MiB, and KiB for small files", () => {
     expect(formatSize(5.04 * 1024 * 1024)).toBe("5.0 MiB");
     expect(formatSize(300 * 1024)).toBe("300 KiB");
+  });
+});
+
+describe("noteCount", () => {
+  it("says note for one", () => {
+    expect(noteCount(1)).toBe("1 note");
+    expect(noteCount(0)).toBe("0 notes");
   });
 });
 

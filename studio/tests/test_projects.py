@@ -204,6 +204,29 @@ class TestLength:
         assert client.put(f"/studio/api/projects/{doc['id']}", json=saved).status_code == 200
 
 
+    def test_a_put_cannot_change_the_length(self, client):
+        doc = create(client, "a.wav", wav())
+        saved = client.put(f"/studio/api/projects/{doc['id']}", json={**doc, "duration": 999.0}).json()
+        assert saved["duration"] == pytest.approx(2.0)
+
+    def test_a_length_that_cannot_be_kept_does_not_stop_the_list(self, client, tmp_path, monkeypatch):
+        doc = create(client, "a.wav", wav())
+        file = tmp_path / "projects" / doc["id"] / "project.json"
+        saved = json.loads(file.read_text(encoding="utf-8"))
+        del saved["duration"]
+        file.write_text(json.dumps(saved), encoding="utf-8")
+
+        def refuse(a, b):
+            raise PermissionError("busy")
+
+        monkeypatch.setattr("studio.projects.os.replace", refuse)
+        assert row(client, doc["id"])["duration"] == pytest.approx(2.0)
+        monkeypatch.undo()
+        assert "duration" not in json.loads(file.read_text(encoding="utf-8"))
+        row(client, doc["id"])
+        assert "duration" in json.loads(file.read_text(encoding="utf-8"))
+
+
 class TestOpened:
     def test_opening_changes_last_opened_and_not_updated(self, client):
         doc = create(client)
@@ -227,9 +250,14 @@ class TestDelete:
         assert not (tmp_path / "projects" / doc["id"]).exists()
         assert not (tmp_path / "trash" / doc["id"]).exists()
 
-    @pytest.mark.parametrize("bad", ["a" * 32, "../projects", "..%2f"])
+    @pytest.mark.parametrize("bad", ["a" * 32, "notanid", "A" * 32])
     def test_a_bad_id_is_404(self, client, bad):
-        assert client.delete(f"/studio/api/projects/{bad}").status_code in (404, 405)
+        assert client.delete(f"/studio/api/projects/{bad}").status_code == 404
+
+    def test_a_path_is_not_an_id(self, client, tmp_path):
+        doc = create(client)
+        assert client.delete("/studio/api/projects/../projects").status_code != 204
+        assert (tmp_path / "projects" / doc["id"]).is_dir()
 
     def test_files_in_use_lose_nothing(self, client, tmp_path, monkeypatch):
         doc = create(client)

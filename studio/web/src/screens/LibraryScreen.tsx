@@ -12,6 +12,7 @@ import {
   formatSize,
   isReady,
   matchesSearch,
+  noteCount,
   pageOf,
   sortByOpened,
   statusOf,
@@ -62,7 +63,9 @@ function ProjectName({ project, detail }: { project: ProjectSummary; detail: str
   );
 }
 
-const open = (project: ProjectSummary) => {
+/** A click anywhere on a row opens it, unless the click was already for a link or button. */
+const openRow = (e: React.MouseEvent, project: ProjectSummary) => {
+  if ((e.target as Element).closest("a, button") || e.ctrlKey || e.metaKey || e.shiftKey) return;
   window.location.hash = `#/p/${project.id}`;
 };
 
@@ -88,7 +91,7 @@ function DeleteDialog(props: {
   }
 
   return (
-    <Modal title={`Delete "${project.name}"?`} onClose={onClose}>
+    <Modal title={`Delete "${project.name}"?`} onClose={busy ? undefined : onClose}>
       <p className="text-[13px] text-muted">This removes its notes and audio from this computer. It can't be undone.</p>
       {error && (
         <p role="alert" className="mt-3 text-[13px] text-danger">
@@ -96,7 +99,7 @@ function DeleteDialog(props: {
         </p>
       )}
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="quiet" onClick={onClose}>
+        <Button variant="quiet" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button variant="primary" disabled={busy} onClick={confirm}>
@@ -221,7 +224,7 @@ export function LibraryScreen() {
                       project={project}
                       detail={details([
                         project.duration != null && formatLength(project.duration),
-                        formatSize(project.audio_size),
+                        project.audio_size > 0 && formatSize(project.audio_size),
                         hints > 0 && `${hints} ${hints === 1 ? "hint" : "hints"}`,
                       ])}
                     />
@@ -277,13 +280,13 @@ export function LibraryScreen() {
             </thead>
             <tbody className="divide-y divide-line">
               {shown.rows.map((project) => (
-                <tr key={project.id} onClick={() => open(project)} className="cursor-pointer hover:bg-raised">
+                <tr key={project.id} onClick={(e) => openRow(e, project)} className="cursor-pointer hover:bg-raised">
                   <td className="px-4 py-2.5">
                     <ProjectName
                       project={project}
                       detail={details([
                         project.duration != null && formatLength(project.duration),
-                        `${project.note_count.toLocaleString()} notes`,
+                        noteCount(project.note_count),
                       ])}
                     />
                   </td>

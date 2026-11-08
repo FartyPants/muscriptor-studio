@@ -1,7 +1,11 @@
 export type SaveState = "saved" | "pending" | "saving" | "failed" | "gone";
 
 /** The project no longer exists on the server, so saving can never work. */
-export class ProjectGoneError extends Error {}
+export class ProjectGoneError extends Error {
+  constructor() {
+    super("This project was deleted. Changes won't be saved.");
+  }
+}
 
 const QUIET_MS = 2000;
 const RETRY_MS = 5000;

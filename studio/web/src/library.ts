@@ -67,5 +67,7 @@ export function formatSize(bytes: number): string {
   return mib >= 1 ? `${mib.toFixed(1)} MiB` : `${Math.max(1, Math.round(bytes / 1024))} KiB`;
 }
 
+export const noteCount = (n: number) => `${n.toLocaleString()} ${n === 1 ? "note" : "notes"}`;
+
 /** The details under a name, leaving out what isn't known or doesn't apply. */
 export const details = (parts: (string | null | false)[]) => parts.filter(Boolean).join(" · ");
