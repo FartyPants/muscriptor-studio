@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import mido
 import numpy as np
 import soundfile as sf
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
@@ -27,6 +28,7 @@ from muscriptor.utils.sheets import MuseScoreError, MuseScoreNotFoundError
 from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
 from studio.analysis import Key, analyze
 from studio.engrave import score_measures, write_musicxml, write_score
+from studio.sync import build_sync
 from studio.tab import Fretboard
 from studio.instruments import scan_instruments
 from studio.models import (
@@ -144,6 +146,14 @@ class AnalysisRequest(BaseModel):
     key: ChosenKey | None = None
 
 
+class SyncNames(BaseModel):
+    """What the sync data says about its files, as far as the caller knows."""
+
+    score_filename: str | None = None
+    audio_filename: str | None = None
+    audio_duration: float | None = None
+
+
 class ScoreRequest(ExportRequest):
     """`/export`'s request, plus what the score needs."""
 
@@ -151,6 +161,7 @@ class ScoreRequest(ExportRequest):
     chords: bool = True
     page: Literal["a4", "letter"] = "letter"
     fretboard: Fretboard | None = None
+    sync: SyncNames | None = None
 
 
 def read_audio(path: Path):
@@ -245,8 +256,8 @@ def create_studio_app(
             iter(export_events(body.notes)), beat_grid=grid, export=options
         )
 
-    def transport_seconds(body: ScoreRequest, beats: list[float]) -> list[float]:
-        """Where each of `beats`, counted from the MIDI's start, plays on the transport.
+    def score_timeline(body: ScoreRequest) -> tuple[Timeline, str]:
+        """The timeline a score plays on, and what its timing comes from.
 
         The same timeline the MIDI is written with (see upstream `notes_to_midi`),
         which already works in transport time: stored times less the onset delay.
@@ -257,6 +268,7 @@ def create_studio_app(
         delay = resolved.onset_delay
         earliest = min([-delay] + [t - delay for t in onsets])
         timeline = timeline_for(resolved, earliest)
+        source = "tempo-map"
         if not resolved.steady:
             # The MIDI's tempo map follows smoothed, simplified beats, which can be
             # 0.1 s off the tracked ones. Notes still quantize into the same
@@ -270,7 +282,59 @@ def create_studio_app(
             same = raw is not None and options.beat_scale == 1 and len(raw) == len(written)
             tracked = np.asarray(raw, dtype=float) if same else written
             timeline = Timeline(tracked, np.arange(len(tracked)) - downbeat + shift)
+            source = "tracked-beats" if same else "smoothed-beats"
+        return timeline, source
+
+    def transport_seconds(body: ScoreRequest, beats: list[float]) -> list[float]:
+        """Where each of `beats`, counted from the MIDI's start, plays on the transport."""
+        timeline, _ = score_timeline(body)
         return [round(float(timeline.seconds_at(b)), 4) for b in beats]
+
+    def first_note_beat(midi: bytes) -> float:
+        file = mido.MidiFile(file=io.BytesIO(midi))
+        ticks = []
+        for track in file.tracks:
+            now = 0
+            for message in track:
+                now += message.time
+                if message.type == "note_on" and message.velocity > 0:
+                    ticks.append(now)
+                    break
+        return min(ticks, default=0) / file.ticks_per_beat
+
+    def trimmed_beats(body: ScoreRequest) -> float:
+        """Beats a trimmed export removed from its start.
+
+        Measured from the two MIDI files rather than worked out again here, so
+        it follows whatever upstream's trimming decides.
+        """
+        if not body.options.trim_leading_bars:
+            return 0.0
+        untrimmed = body.model_copy(
+            update={"options": body.options.model_copy(update={"trim_leading_bars": False})}
+        )
+        return first_note_beat(score_midi(untrimmed)) - first_note_beat(score_midi(body))
+
+    def sync_data(body: ScoreRequest, musicxml: Path, score_filename: str) -> dict[str, Any]:
+        """The sync document for the MusicXML file just written from `body`."""
+        starts, end = score_measures(musicxml)
+        timeline, source = score_timeline(body)
+        trimmed = trimmed_beats(body)
+
+        def seconds_at(quarters: list[float]) -> list[float]:
+            return [round(float(timeline.seconds_at(q + trimmed)), 4) for q in quarters]
+
+        names = body.sync or SyncNames()
+        return build_sync(
+            starts,
+            seconds_at,
+            end,
+            source,
+            score_filename,
+            musicxml.read_bytes(),
+            names.audio_filename,
+            names.audio_duration,
+        )
 
     @api.post("/score/musicxml")
     async def score_musicxml(body: ScoreRequest):
@@ -296,6 +360,33 @@ def create_studio_app(
         except MuseScoreError as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
         return Response(content=data, media_type="application/vnd.recordare.musicxml+xml")
+
+    @api.post("/score/sync")
+    async def score_sync(body: ScoreRequest):
+        """One engraving's MusicXML and its sync data, so the two always match."""
+
+        def build() -> dict[str, Any]:
+            with tempfile.TemporaryDirectory(prefix="studio-score-") as tmp:
+                out = Path(tmp) / "score.musicxml"
+                write_musicxml(
+                    score_midi(body),
+                    out,
+                    body.beat_grid is not None,
+                    body.key.as_key() if body.key else None,
+                    body.chords,
+                    body.fretboard,
+                )
+                name = (body.sync.score_filename if body.sync else None) or "score.musicxml"
+                # Decoded from bytes, as text mode would change the line endings
+                # and with them the hash.
+                return {"musicxml": out.read_bytes().decode("utf-8"), "sync": sync_data(body, out, name)}
+
+        try:
+            return await asyncio.to_thread(build)
+        except MuseScoreNotFoundError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except MuseScoreError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     @api.post("/score/view")
     async def score_view(body: ScoreRequest):
@@ -351,6 +442,11 @@ def create_studio_app(
                     body.page,
                     body.fretboard,
                 )
+                musicxml = Path(tmp) / "score.musicxml"
+                if musicxml.is_file():
+                    sync = Path(tmp) / "score.sync.json"
+                    sync.write_text(json.dumps(sync_data(body, musicxml, musicxml.name)), encoding="utf-8")
+                    written.append(sync)
                 buffer = io.BytesIO()
                 with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
                     for path in written:

@@ -1,4 +1,6 @@
+import hashlib
 import io
+import json
 import zipfile
 from pathlib import Path
 
@@ -318,4 +320,85 @@ class TestViewTab:
 
         monkeypatch.setattr("studio.app.write_musicxml", fake)
         assert client.post("/studio/api/score/view", json=body()).json()["tab"] is None
+
+
+def sync_writer(count=2, beats=4):
+    def fake(midi, out, quantized, key, chords, fretboard=None):
+        Path(out).write_bytes(measures_xml(count, beats).encode("utf-8"))
+        return {"key": None, "chords": 0}
+
+    return fake
+
+
+UNSTEADY = {**GRID, "steady": False, "beats": [i * 0.5 + (0.12 if i % 4 == 0 and i > 0 else 0) for i in range(40)]}
+BEAT_NOTES = [{"instrument": "acoustic_piano", "pitch": 60, "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+
+
+class TestSync:
+    def post(self, client, monkeypatch, count=2, beats=4, **extra):
+        monkeypatch.setattr("studio.app.write_musicxml", sync_writer(count, beats))
+        r = client.post("/studio/api/score/sync", json=body(**extra))
+        assert r.status_code == 200
+        return r.json()
+
+    def test_returns_the_score_and_a_sync_document_that_hashes_it(self, client, monkeypatch):
+        out = self.post(client, monkeypatch, sync={"score_filename": "song.musicxml", "audio_filename": "song.wav", "audio_duration": 183.42})
+        sync = out["sync"]
+        assert sync["format"] == "score-audio-sync" and sync["version"] == 1
+        assert sync["score"] == {
+            "filename": "song.musicxml",
+            "sha256": hashlib.sha256(out["musicxml"].encode("utf-8")).hexdigest(),
+        }
+        assert sync["audio"] == {"filename": "song.wav", "durationSeconds": 183.42}
+        assert sorted(sync) == ["anchors", "audio", "endQuarter", "endSeconds", "format", "score", "timingSource", "version"]
+
+    def test_anchors_are_per_quarter_and_match_the_tempo(self, client, monkeypatch):
+        sync = self.post(client, monkeypatch)["sync"]
+        assert [a["quarter"] for a in sync["anchors"]] == [float(q) for q in range(8)]
+        assert [a["seconds"] for a in sync["anchors"]] == pytest.approx([q * 0.5 for q in range(8)])
+        assert sync["endQuarter"] == 8 and sync["endSeconds"] == pytest.approx(4.0)
+        assert sync["timingSource"] == "tempo-map"
+
+    def test_unknown_audio_is_left_out(self, client, monkeypatch):
+        assert "audio" not in self.post(client, monkeypatch)["sync"]
+
+    def test_the_lead_in_stays_negative(self, client, monkeypatch):
+        grid = {**GRID, "onset_delay": 0.1}
+        sync = self.post(client, monkeypatch, beat_grid=grid)["sync"]
+        assert sync["anchors"][0] == {"quarter": 0.0, "seconds": pytest.approx(-2.0)}
+
+    def test_timing_source_names_the_beats_it_used(self, client, monkeypatch):
+        tracked = self.post(client, monkeypatch, beat_grid=UNSTEADY, notes=BEAT_NOTES)["sync"]
+        assert tracked["timingSource"] == "tracked-beats"
+        scaled = self.post(client, monkeypatch, beat_grid=UNSTEADY, notes=BEAT_NOTES, options={"beat_scale": 2})["sync"]
+        assert scaled["timingSource"] == "smoothed-beats"
+        fixed = self.post(client, monkeypatch, beat_grid=UNSTEADY, notes=BEAT_NOTES, options={"tempo_map": False})["sync"]
+        assert fixed["timingSource"] == "tempo-map"
+
+    def test_no_grid_is_well_formed_and_a_tempo_map(self, client, monkeypatch):
+        monkeypatch.setattr("studio.app.write_musicxml", sync_writer())
+        sync = client.post("/studio/api/score/sync", json={"notes": NOTES}).json()["sync"]
+        assert sync["timingSource"] == "tempo-map" and sync["anchors"][0]["quarter"] == 0.0
+
+    def test_a_trimmed_score_counts_from_what_it_kept(self, client, monkeypatch):
+        late = [{"instrument": "acoustic_piano", "pitch": 60, "start": 8.0, "end": 9.0}]
+        whole = self.post(client, monkeypatch, notes=late)["sync"]
+        trimmed = self.post(client, monkeypatch, notes=late, options={"trim_leading_bars": True})["sync"]
+        assert whole["anchors"][0]["seconds"] == pytest.approx(0.0)
+        assert trimmed["anchors"][0]["seconds"] == pytest.approx(8.0)
+        assert trimmed["anchors"][4]["seconds"] == pytest.approx(10.0)
+
+    def test_the_pdf_zip_carries_sync_data_for_its_musicxml(self, client, monkeypatch):
+        def fake(midi, folder, quantized, key, chords, page, fretboard=None):
+            xml = folder / "score.musicxml"
+            xml.write_bytes(measures_xml(2, 4).encode("utf-8"))
+            return [xml]
+
+        monkeypatch.setattr("studio.app.write_score", fake)
+        r = client.post("/studio/api/score/pdf", json=body())
+        archive = zipfile.ZipFile(io.BytesIO(r.content))
+        assert archive.namelist() == ["score.musicxml", "score.sync.json"]
+        sync = json.loads(archive.read("score.sync.json"))
+        assert sync["score"]["filename"] == "score.musicxml"
+        assert sync["score"]["sha256"] == hashlib.sha256(archive.read("score.musicxml")).hexdigest()
 
