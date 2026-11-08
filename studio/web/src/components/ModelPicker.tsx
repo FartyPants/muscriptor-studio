@@ -1,20 +1,25 @@
 import type { ModelInfo, ModelSize } from "../api";
 import { Segmented } from "./ui";
 
-const LABELS: Record<ModelSize, string> = { medium: "Medium (recommended)", large: "Large" };
+const LABELS: Record<ModelSize, string> = {
+  small: "Small",
+  medium: "Medium (recommended)",
+  large: "Large",
+};
 const HINTS: Record<ModelSize, string> = {
+  small: "Fastest, and the practical choice without a GPU. Less accurate.",
   medium: "Fast, and accurate when the instruments are listed.",
   large: "Slower, and needs more GPU memory. Best on short songs.",
 };
 
-/** Medium or Large. The server loads the choice when work starts. */
+/** Small, Medium or Large, whichever are on disk. The server loads the choice when work starts. */
 export function ModelPicker(props: {
   models: ModelInfo[];
   value: ModelSize;
   onChange: (size: ModelSize) => void;
 }) {
   const { models, value, onChange } = props;
-  const options = (["medium", "large"] as const)
+  const options = (["small", "medium", "large"] as const)
     .filter((size) => models.find((m) => m.size === size)?.available)
     .map((size) => ({ value: size, label: LABELS[size] }));
   return (

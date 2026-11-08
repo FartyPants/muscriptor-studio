@@ -3,6 +3,7 @@ rem Starts MuScriptor Studio and opens it in the default browser.
 rem   start-studio.bat          load no model yet: choose one in Studio
 rem   start-studio.bat large    load the large model now
 rem   start-studio.bat medium   load the medium model now
+rem   start-studio.bat small    load the small model now
 rem Close this window or press Ctrl+C to stop the server.
 rem Runs .venv directly: "uv run" would re-sync and replace GPU torch with CPU torch.
 
@@ -14,6 +15,7 @@ set "URL=http://127.0.0.1:8222/"
 set "MODEL="
 if /i "%~1"=="large" set "MODEL=--model large"
 if /i "%~1"=="medium" set "MODEL=--model medium"
+if /i "%~1"=="small" set "MODEL=--model small"
 
 if not defined MUSCRIPTOR_MUSESCORE set "MUSCRIPTOR_MUSESCORE=C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
 set "PYTHONIOENCODING=utf-8"

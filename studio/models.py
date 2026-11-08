@@ -19,6 +19,8 @@ MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 WEIGHTS: dict[str, Path] = {
     "large": MODELS_DIR / "muscriptor-large.safetensors",
     "medium": MODELS_DIR / "medium" / "model.safetensors",
+    # Optional: the UI lists it only once its weights are on disk.
+    "small": MODELS_DIR / "small" / "model.safetensors",
 }
 
 

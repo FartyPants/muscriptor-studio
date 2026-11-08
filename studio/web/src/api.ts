@@ -2,7 +2,7 @@ import { errorDetail } from "./export";
 import { readEvents } from "./sse";
 import type { BeatGrid, ChordSpan } from "./pianoroll";
 
-export type ModelSize = "large" | "medium";
+export type ModelSize = "large" | "medium" | "small";
 
 export type ModelInfo = { size: ModelSize; available: boolean; active: boolean };
 
