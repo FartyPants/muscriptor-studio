@@ -52,7 +52,7 @@ The models are free for non-commercial use, but their makers ask you to accept t
 1. Open <https://github.com/FartyPants/muscriptor-studio>.
 2. Click the green **Code** button, then **Download ZIP**.
 3. Open your Downloads folder, right-click `muscriptor-studio-main.zip`, and choose **Extract All...**
-4. In the box that asks where to extract, replace the text with exactly this:
+4. In the box that asks where to extract, it is best to use root of your drive, for example:
 
    ```
    C:\
@@ -60,7 +60,7 @@ The models are free for non-commercial use, but their makers ask you to accept t
 
 5. Click **Extract**. You now have the folder `C:\muscriptor-studio-main`.
 
-Use that folder, not your Desktop or Documents. Those are often synced to OneDrive, and the install is too large for that. A very long folder path also makes the install fail.
+Newb note: Use that folder, not your Desktop or Documents. Those are often synced to OneDrive, and the install is too large for that. A very long folder path also makes the install fail.
 
 ### Step 3: Install
 
