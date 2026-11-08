@@ -37,8 +37,7 @@ call env.bat
 powershell -NoProfile -ExecutionPolicy Bypass -File install\uv.ps1
 .tools\uv\uv.exe python install 3.13 --no-bin --no-registry
 .tools\uv\uv.exe venv .venv --python 3.13 --managed-python
-.tools\uv\uv.exe export --frozen --no-hashes --no-emit-project --no-dev -q -o .tools\constraints.txt
-.tools\uv\uv.exe pip install --python .venv\Scripts\python.exe --torch-backend=cu128 -c .tools\constraints.txt -e . -r studio\requirements.txt
+.tools\uv\uv.exe pip install --python .venv\Scripts\python.exe --torch-backend=cu128 -c install\constraints.txt -e . -r studio\requirements.txt
 ```
 
 Without an NVIDIA GPU, use `--torch-backend=cpu`. Don't use `uv sync`: it replaces the GPU build of PyTorch with the CPU one.

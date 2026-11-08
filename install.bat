@@ -42,10 +42,9 @@ set "BACKEND=cpu"
 nvidia-smi -L >nul 2>&1
 if not errorlevel 1 set "BACKEND=cu128"
 if "%BACKEND%"=="cu128" (echo NVIDIA GPU found: installing PyTorch for CUDA.) else (echo No NVIDIA GPU found: installing PyTorch for the CPU. Transcription will be slow.)
-rem Versions from uv.lock, but with "uv pip": "uv sync" would replace GPU torch with CPU torch.
-"%UV%" export --frozen --no-hashes --no-emit-project --no-dev -q -o "%MUSCRIPTOR_ROOT%\.tools\constraints.txt"
-if errorlevel 1 goto failed
-"%UV%" pip install --python "%PY%" --torch-backend=%BACKEND% -c "%MUSCRIPTOR_ROOT%\.tools\constraints.txt" -e . -r studio\requirements.txt
+rem "uv pip", not "uv sync", which would replace GPU torch with CPU torch. Relative
+rem paths: uv split an absolute one at a space.
+"%UV%" pip install --python ".venv\Scripts\python.exe" --torch-backend=%BACKEND% -c install\constraints.txt -e . -r studio\requirements.txt
 if errorlevel 1 goto failed
 
 echo.
