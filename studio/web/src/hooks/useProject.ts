@@ -249,6 +249,8 @@ export function useProject(deps: {
     (async () => {
       try {
         const loaded = await api.getProject(id);
+        // Only the Library's order depends on this.
+        api.markOpened(id).catch(() => {});
         const file = await api.audioFile(loaded);
         if (cancelled) return;
         fileRef.current = file;

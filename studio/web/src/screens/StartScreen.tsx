@@ -1,7 +1,7 @@
-import { AudioLines, FileAudio } from "lucide-react";
+import { ArrowLeft, AudioLines, FileAudio } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
-import { api, type ModelSize, type ModelsState, type ProjectSummary } from "../api";
+import { api, type ModelSize, type ModelsState } from "../api";
 import { PALETTE } from "../colors";
 import { ModelPicker } from "../components/ModelPicker";
 import { Button } from "../components/ui";
@@ -23,22 +23,9 @@ function RollStrip() {
   );
 }
 
-function when(seconds: number): string {
-  const days = Math.floor((Date.now() / 1000 - seconds) / 86400);
-  if (days <= 0) return "today";
-  return days === 1 ? "yesterday" : `${days} days ago`;
-}
-
-const STATUS: Record<string, string> = {
-  created: "Not transcribed",
-  transcribing: "Not finished",
-  partial: "Stopped early",
-  completed: "Finished",
-};
-
 export function StartScreen() {
   const [models, setModels] = useState<ModelsState | null>(null);
-  const [recent, setRecent] = useState<ProjectSummary[]>([]);
+  const [hasProjects, setHasProjects] = useState(false);
   const [size, setSize] = useState<ModelSize>("medium");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -51,7 +38,7 @@ export function StartScreen() {
       .models()
       .then(setModels)
       .catch(() => setError("The MuScriptor server isn't responding. Start it with start-studio.bat."));
-    api.projects().then(setRecent, () => {});
+    api.projects().then((projects) => setHasProjects(projects.length > 0), () => {});
   }, []);
 
   async function start() {
@@ -68,8 +55,14 @@ export function StartScreen() {
   }
 
   return (
-    <main className="mx-auto grid min-h-full max-w-5xl content-center gap-10 px-6 py-10 lg:grid-cols-[1fr_300px]">
+    <main className="mx-auto grid min-h-full max-w-2xl content-center px-6 py-10">
       <section>
+        {hasProjects && (
+          <a href="#/" className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-content">
+            <ArrowLeft size={14} />
+            Library
+          </a>
+        )}
         <h1 className="flex items-center gap-2.5 text-[26px] leading-tight font-semibold text-content">
           <AudioLines size={26} className="text-accent" />
           MuScriptor Studio
@@ -131,24 +124,6 @@ export function StartScreen() {
           </p>
         )}
       </section>
-
-      {recent.length > 0 && (
-        <nav aria-label="Recent projects" className="lg:border-l lg:border-line lg:pl-8">
-          <h2 className="mb-2 text-[13px] font-medium text-muted">Recent projects</h2>
-          <ul className="-mx-2 max-h-[420px] overflow-y-auto">
-            {recent.slice(0, 12).map((project) => (
-              <li key={project.id}>
-                <a href={`#/p/${project.id}`} className="block rounded-control px-2 py-1.5 hover:bg-panel">
-                  <span className="block truncate text-[13px] font-medium text-content">{project.name}</span>
-                  <span className="block text-xs text-muted">
-                    {STATUS[project.status] ?? project.status}, {when(project.updated)}
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      )}
     </main>
   );
 }

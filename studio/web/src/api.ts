@@ -38,6 +38,12 @@ export type ProjectSummary = {
   model: ModelSize | null;
   note_count: number;
   updated: number;
+  created: number;
+  opened: number;
+  /** Seconds of audio. Null when the file's length can't be read. */
+  duration: number | null;
+  audio_size: number;
+  hints?: string[];
 };
 
 export type InstrumentSuggestion = { label: string; instruments: string[]; score: number };
@@ -150,6 +156,9 @@ export const api = {
       .then((r) => r.beat_grid),
 
   projects: () => fetch("/studio/api/projects").then(json<ProjectSummary[]>),
+
+  /** Note that a project was opened, for the Library's order. */
+  markOpened: (id: string) => fetch(`/studio/api/projects/${id}/opened`, { method: "POST" }),
 
   analysis: (notes: ProjectNote[], beat_grid: BeatGrid | null, key: ChosenKey | null) =>
     fetch("/studio/api/analysis", send({ notes, beat_grid, key }, "POST")).then(json<Analysis>),

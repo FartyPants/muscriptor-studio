@@ -33,9 +33,9 @@ export function TopBar(props: {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-3">
       <a
-        href="#/new"
-        aria-label="Back to projects"
-        title="Back to projects"
+        href="#/"
+        aria-label="Back to library"
+        title="Back to library"
         className="flex size-8 items-center justify-center rounded-control text-muted hover:bg-raised hover:text-content"
       >
         <ArrowLeft size={17} />
