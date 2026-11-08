@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -13,16 +14,33 @@ import uuid
 from pathlib import Path
 from typing import Any, BinaryIO
 
+import soundfile as sf
+
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 _ID = re.compile(r"[0-9a-f]{32}")
 _SUFFIX = re.compile(r"\.[a-z0-9]{1,8}")
 # Set by the server. A PUT can't change them.
-_SERVER_FIELDS = ("id", "created", "audio_name", "audio_file")
+_SERVER_FIELDS = ("id", "created", "audio_name", "audio_file", "opened", "duration")
 
 
 class ProjectNotFoundError(KeyError):
     pass
+
+
+class ProjectInUseError(RuntimeError):
+    """The project's files can't be moved, so it was left as it was."""
+
+
+def _audio_length(path: Path) -> float | None:
+    """Seconds of audio in `path`, or None for a file that can't be read.
+
+    Slow for an MP3, up to seconds, so the result is kept in `project.json`.
+    """
+    try:
+        return round(float(sf.info(str(path)).duration), 3)
+    except Exception:  # noqa: BLE001 - any file at all can be uploaded
+        return None
 
 
 class ProjectStore:
@@ -62,6 +80,7 @@ class ProjectStore:
             "updated": now,
             "audio_name": filename,
             "audio_file": audio_file,
+            "duration": _audio_length(path / audio_file),
         }
         self._write(path, doc)
         return doc
@@ -79,22 +98,70 @@ class ProjectStore:
                     doc = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     continue
+                if "duration" not in doc:
+                    doc["duration"] = self._store_length(path.parent, doc)
                 notes = doc.pop("notes", [])
                 doc.pop("beat_grid", None)
-                rows.append({**doc, "note_count": len(notes)})
+                rows.append({**doc, "note_count": len(notes), "audio_size": self._size(path.parent, doc)})
         return sorted(rows, key=lambda d: -d.get("updated", 0))
+
+    def _store_length(self, path: Path, doc: dict[str, Any]) -> float | None:
+        """Read an older project's audio length, once, and keep it."""
+        length = _audio_length(path / doc.get("audio_file", ""))
+        # Outside the lock: an MP3 can take seconds to measure.
+        with self._lock:
+            current = json.loads((path / "project.json").read_text(encoding="utf-8"))
+            current["duration"] = length
+            self._write_unlocked(path, current)
+        return length
+
+    @staticmethod
+    def _size(path: Path, doc: dict[str, Any]) -> int:
+        try:
+            return (path / doc.get("audio_file", "")).stat().st_size
+        except OSError:
+            return 0
 
     def put(self, project_id: str, doc: dict[str, Any]) -> dict[str, Any]:
         path = self._dir(project_id)
         with self._lock:
             current = json.loads((path / "project.json").read_text(encoding="utf-8"))
             merged = {
-                **doc,
-                **{k: current[k] for k in _SERVER_FIELDS},
+                **{k: v for k, v in doc.items() if k not in _SERVER_FIELDS},
+                # Not every field is in an older project yet.
+                **{k: current[k] for k in _SERVER_FIELDS if k in current},
                 "updated": time.time(),
             }
             self._write_unlocked(path, merged)
         return merged
+
+    def mark_opened(self, project_id: str) -> None:
+        """Note that the project was opened. Opening isn't a change to it."""
+        path = self._dir(project_id)
+        with self._lock:
+            current = json.loads((path / "project.json").read_text(encoding="utf-8"))
+            current["opened"] = time.time()
+            self._write_unlocked(path, current)
+
+    def delete(self, project_id: str) -> None:
+        """Remove the project and its audio.
+
+        The folder is moved out in one step first, so a file in use can only
+        stop the whole delete, never leave half a project.
+        """
+        path = self._dir(project_id)
+        trash = self.root.parent / "trash"
+        trash.mkdir(parents=True, exist_ok=True)
+        target = trash / project_id
+        with self._lock:
+            shutil.rmtree(target, ignore_errors=True)
+            try:
+                os.replace(path, target)
+            except OSError as e:
+                raise ProjectInUseError(
+                    "Its files are in use. Close any other Studio tab playing it, then try again."
+                ) from e
+        shutil.rmtree(target, ignore_errors=True)
 
     def audio_path(self, project_id: str) -> tuple[Path, str]:
         path = self._dir(project_id)

@@ -36,7 +36,7 @@ from studio.models import (
     SwitchableModel,
 )
 from studio.tagger import safe_tag
-from studio.projects import DATA_DIR, ProjectNotFoundError, ProjectStore
+from studio.projects import DATA_DIR, ProjectInUseError, ProjectNotFoundError, ProjectStore
 
 HERE = Path(__file__).resolve().parent
 ORIGINAL_WEB = HERE.parent / "muscriptor" / "web_dist"
@@ -410,6 +410,24 @@ def create_studio_app(
             return await asyncio.to_thread(store.put, project_id, doc)
         except ProjectNotFoundError as e:
             raise HTTPException(status_code=404, detail="no such project") from e
+
+    @api.post("/projects/{project_id}/opened")
+    async def project_opened(project_id: str):
+        try:
+            await asyncio.to_thread(store.mark_opened, project_id)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+        return Response(status_code=204)
+
+    @api.delete("/projects/{project_id}")
+    async def delete_project(project_id: str):
+        try:
+            await asyncio.to_thread(store.delete, project_id)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+        except ProjectInUseError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return Response(status_code=204)
 
     @api.get("/projects/{project_id}/audio")
     async def project_audio(project_id: str):
