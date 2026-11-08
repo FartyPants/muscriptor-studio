@@ -326,6 +326,7 @@ def create_studio_app(
                 "key": info.get("key"),
                 "chords": info.get("chords", 0),
                 "tab": info.get("tab"),
+                "diagrams": info.get("diagrams"),
             }
 
         try:

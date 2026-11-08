@@ -258,3 +258,30 @@ def test_key_signatures(key, fifths):
     part = ET.fromstring('<part><measure><attributes><key><fifths>0</fifths></key></attributes></measure></part>')
     rewrite_key(part, key)
     assert part.find(".//fifths").text == fifths
+
+
+class TestChordDiagrams:
+    def test_a_shape_becomes_a_frame_before_the_offset(self):
+        from studio.chord_shapes import Shape
+
+        root = score()
+        shapes = [Shape((0, 1, 0, 2, 3, None), 1), Shape((5, 5, 6, 7, 7, 5), 5)]
+        placed = []
+        add_chords(root, [chord(1.0), chord(4.0, "A")], shapes, placed)
+        assert placed == [0, 1]
+        first, second = root.iter("harmony")
+        frame = first.find("frame")
+        assert [c.tag for c in first][-2:] == ["frame", "offset"]
+        assert frame.findtext("frame-strings") == "6" and frame.findtext("frame-frets") == "4"
+        assert frame.find("first-fret") is None
+        notes = [(n.findtext("string"), n.findtext("fret")) for n in frame.findall("frame-note")]
+        # The muted low E is simply not listed.
+        assert notes == [("1", "0"), ("2", "1"), ("3", "0"), ("4", "2"), ("5", "3")]
+        assert second.find("frame/first-fret").text == "5"
+
+    def test_chords_outside_the_score_are_not_placed(self):
+        root = score(measures=1)
+        placed = []
+        add_chords(root, [chord(0.0), chord(9.0)], [None, None], placed)
+        assert placed == [0]
+        assert root.find(".//harmony/frame") is None

@@ -28,6 +28,7 @@ from muscriptor.utils.sheets import (
     import_options,
 )
 from studio.analysis import Key, detect_chords, detect_key
+from studio.chord_shapes import Shape, shape_for_chord
 from studio.tab import Fretboard, add_tab_staff, find_part
 
 # Inches.
@@ -109,7 +110,23 @@ def _text(parent: ET.Element, tag: str, value: str) -> ET.Element:
     return element
 
 
-def _harmony(chord: dict[str, Any], offset: int) -> ET.Element:
+def _frame(shape: Shape) -> ET.Element:
+    """A chord diagram: MusicXML lists only the strings that sound."""
+    frame = ET.Element("frame")
+    _text(frame, "frame-strings", str(len(shape.frets)))
+    _text(frame, "frame-frets", "4")
+    if shape.first_fret > 1:
+        _text(frame, "first-fret", str(shape.first_fret))
+    for index, fret in enumerate(shape.frets):
+        if fret is None:
+            continue
+        note = ET.SubElement(frame, "frame-note")
+        _text(note, "string", str(index + 1))
+        _text(note, "fret", str(fret))
+    return frame
+
+
+def _harmony(chord: dict[str, Any], offset: int, shape: Shape | None = None) -> ET.Element:
     harmony = ET.Element("harmony")
     step, alter = _name_parts(chord["root"])
     root = ET.SubElement(harmony, "root")
@@ -124,6 +141,8 @@ def _harmony(chord: dict[str, Any], offset: int) -> ET.Element:
         _text(bass, "bass-step", step)
         if alter:
             _text(bass, "bass-alter", str(alter))
+    if shape is not None:
+        harmony.append(_frame(shape))
     if offset:
         _text(harmony, "offset", str(offset))
     return harmony
@@ -213,15 +232,24 @@ def score_measures(path: Path) -> tuple[list[float], float]:
     return starts, end
 
 
-def add_chords(root: ET.Element, chords: list[dict[str, Any]]) -> int:
-    """Write chord symbols into the first pitched part. Returns how many landed."""
+def add_chords(
+    root: ET.Element,
+    chords: list[dict[str, Any]],
+    shapes: list[Shape | None] | None = None,
+    placed: list[int] | None = None,
+) -> int:
+    """Write chord symbols into the first pitched part. Returns how many landed.
+
+    `shapes`, one per chord, adds chord diagrams. `placed` collects the index
+    of each chord written, in score order.
+    """
     parts = [p for p in root.findall("part") if not _is_drum_part(p)]
     if not parts:
         return 0
     measures = parts[0].findall("measure")
     starts, per_beat, end = measure_map(measures)
     written = 0
-    for chord in chords:
+    for index, chord in enumerate(chords):
         bar = bisect_right(starts, chord["start"]) - 1
         if bar < 0 or chord["start"] >= end:
             continue
@@ -233,7 +261,10 @@ def add_chords(root: ET.Element, chords: list[dict[str, Any]]) -> int:
         # After any symbols already placed, so a bar's chords stay in time order.
         while anchor < len(measure) and measure[anchor].tag == "harmony":
             anchor += 1
-        measure.insert(anchor, _harmony(chord, offset))
+        shape = shapes[index] if shapes is not None else None
+        measure.insert(anchor, _harmony(chord, offset, shape))
+        if placed is not None:
+            placed.append(index)
         written += 1
     return written
 
@@ -275,7 +306,12 @@ def prepare_musicxml(
                 rewrite_key(part, resolved)
     keep_first_tempo(root)
     chords = score_chords(notes, beats_per_bar, resolved) if with_chords else []
-    written = add_chords(root, chords) if chords else 0
+    shapes = None
+    if fretboard is not None and fretboard.diagrams:
+        shapes = [shape_for_chord(c, fretboard.tuning, fretboard.capo) for c in chords]
+    placed: list[int] = []
+    written = add_chords(root, chords, shapes, placed) if chords else 0
+    diagrams = [shapes[i].as_json() if shapes[i] else None for i in placed] if shapes is not None else None
     tab = None
     if fretboard is not None and fretboard.tab:
         tab = add_tab_staff(root, fretboard.tab, fretboard.tuning, fretboard.capo)
@@ -285,6 +321,7 @@ def prepare_musicxml(
         "chords": written,
         "beats_per_bar": beats_per_bar,
         "tab": tab,
+        "diagrams": diagrams,
     }
 
 
@@ -395,7 +432,9 @@ def write_score(
     written = [midi_path]
     with tempfile.TemporaryDirectory(prefix="studio-engrave-") as tmp:
         work = Path(tmp)
-        musicxml, _ = _score_files(binary, midi_path, work, quantized, key, with_chords)
+        # Diagrams go on the chords in both copies; the tab only in the second.
+        diagrams_only = fretboard.model_copy(update={"tab": None}) if fretboard else None
+        musicxml, _ = _score_files(binary, midi_path, work, quantized, key, with_chords, diagrams_only)
         tabbed = work / "tabbed.musicxml"
         tab_part = tabbed_copy(musicxml, tabbed, fretboard)
         shown = tabbed if tab_part is not None else musicxml
