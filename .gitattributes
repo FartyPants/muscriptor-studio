@@ -1,3 +1,5 @@
 # cmd.exe misreads labels in a file with bare LF line endings.
 *.bat text eol=crlf
 *.ps1 text eol=crlf
+# A shell script with CRLF line endings doesn't run on a Mac.
+*.sh text eol=lf

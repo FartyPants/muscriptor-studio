@@ -8,7 +8,7 @@ Turn a recording into notes you can edit, hear and export. Drop in an audio file
 |---|---|
 | ![The Score tab, with chord names and a playhead](media/ddimage41.jpg) | ![Editing one instrument's notes on the roll](media/ddimage42.jpg) |
 
-**Tested on Windows 10.** Windows. Should work on MAC and Linux, but that was not tested.
+**Tested on Windows 10.** There is also an [install for Macs with Apple Silicon](#install-on-a-mac-not-tested), which **has not been tested**. Linux should work too, but that was not tested either.
 
 ## How is this different from MuScriptor?
 
@@ -119,6 +119,30 @@ You can skip the token and download the model files in your browser instead. You
 
 If a link shows an error instead of downloading, you aren't logged in, or you haven't accepted that model's terms yet.
 
+## Install on a Mac (not tested)
+
+**Nobody has run this on a Mac yet**, so expect rough edges. It needs a Mac with Apple Silicon (M1 or later). Intel Macs won't work.
+
+1. Do Step 1 above, to accept the licence and make a token. Or follow [Download the models without a token](#download-the-models-without-a-token): type `tagger` when asked which models you want, and use the folder you extract here in place of `C:\muscriptor-studio-main`.
+2. Open <https://github.com/FartyPants/muscriptor-studio>, click the green **Code** button, then **Download ZIP**. Your Mac extracts it into your Downloads folder, or double-click it. Move the folder `muscriptor-studio-main` somewhere that isn't synced to iCloud, such as your home folder.
+3. Open **Terminal**. Type `cd`, then a space, then drag the `muscriptor-studio-main` folder into the Terminal window, and press **Return**.
+4. Install:
+
+   ```bash
+   bash install.sh
+   ```
+
+   It asks the same two questions as Step 3 above. Paste your token with **Command + V**. When it says `Done`, go on.
+5. Start Studio. Your browser opens it by itself:
+
+   ```bash
+   bash start-studio.sh
+   ```
+
+   Keep the Terminal window open while you use Studio. Next time, repeat item 3, then this item.
+
+Everything stays in the folder, except that MuseScore keeps its settings in your home folder. A MuseScore 4 already in Applications is used if there is one.
+
 ## If something goes wrong
 
 Most problems are fixed by running **install.bat** again: it skips what's already done.
@@ -166,6 +190,8 @@ The transcription models are [CC BY-NC 4.0](https://creativecommons.org/licenses
 
 ## For developers: manual install
 
+### Windows
+
 Everything install.bat does, by hand. Open the folder in File Explorer, click the address bar, type `cmd` and press Enter. These commands are for Command Prompt, not PowerShell.
 
 ```bat
@@ -193,7 +219,40 @@ call .\env.bat
 .venv\Scripts\python.exe -m studio.install_models medium tagger
 ```
 
-Or download the files by hand from each model's *Files and versions* tab:
+Then start it with **start-studio.bat**.
+
+### Mac (not tested)
+
+Everything install.sh does, by hand, for a Mac with Apple Silicon. Nobody has run these on a Mac yet. Paste them into Terminal:
+
+```bash
+git clone https://github.com/FartyPants/muscriptor-studio ~/MuScriptor
+cd ~/MuScriptor
+source ./env.sh
+curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="$PWD/.tools/uv" sh
+.tools/uv/uv python install 3.13 --no-bin
+.tools/uv/uv venv .venv --python 3.13 --managed-python
+.tools/uv/uv pip install --python .venv/bin/python -c install/constraints.txt -e . -r studio/requirements.txt
+```
+
+MuseScore draws the Score tab and the PDFs. Install MuseScore 4 from [musescore.org](https://musescore.org/en/download) into Applications. Everything else works without it.
+
+Download the models. It asks you to log in to Hugging Face if needed. Name any of `small`, `medium`, `large` and `tagger`:
+
+```bash
+.venv/bin/python -m studio.install_models medium tagger
+```
+
+Start Studio from the same folder, then open <http://127.0.0.1:8222/studio/>:
+
+```bash
+source ./env.sh
+.venv/bin/python -m studio
+```
+
+### Downloading the models by hand
+
+On either system, you can download the files from each model's *Files and versions* tab. On a Mac, the folders are the same with `/` in place of `\`.
 
 | Model | File on its page | Goes to |
 |---|---|---|
