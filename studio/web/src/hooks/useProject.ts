@@ -296,6 +296,12 @@ export function useProject(deps: {
     updateDoc({ fretboard });
   };
 
+  /** Point the tab at another track, if it is on `from` now. Null means no tab. */
+  const moveTab = (from: string | null, to: string | null) => {
+    const fretboard = docRef.current?.fretboard;
+    if ((fretboard?.tab ?? null) === from && fretboard) updateDoc({ fretboard: { ...fretboard, tab: to } });
+  };
+
   /** Save a list of instruments for a project still waiting to be transcribed. */
   const saveHints = (hints: string[]) => {
     const next = { ...docRef.current!, hints };
@@ -322,6 +328,7 @@ export function useProject(deps: {
     chooseKey,
     chooseMeter,
     chooseFretboard,
+    moveTab,
     saveHints,
     stop() {
       setStopping(true);

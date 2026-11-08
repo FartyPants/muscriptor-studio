@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectNote } from "../api";
-import { changeInstrument, instrumentTargets, movedFlag } from "./changeInstrument";
+import { changeInstrument, instrumentTargets, movedFlag, restoredFlag } from "./changeInstrument";
 import { NoteStore } from "./noteStore";
 
 const note = (id: string, instrument: string, pitch = 60): ProjectNote => ({
@@ -45,6 +45,33 @@ describe("instrumentTargets", () => {
       "acoustic_piano",
       "violin",
     ]);
+  });
+});
+
+describe("restoredFlag", () => {
+  it("puts a renamed track's state back", () => {
+    expect(restoredFlag(new Set(["violin"]), "flutes", "violin", false, true)).toEqual(new Set(["flutes"]));
+  });
+
+  it("gives an unmerged track its own state, and leaves the other track's", () => {
+    expect(restoredFlag(new Set(["violin"]), "flutes", "violin", true, true)).toEqual(new Set(["flutes", "violin"]));
+    const other = new Set(["violin"]);
+    expect(restoredFlag(other, "flutes", "violin", true, false)).toBe(other);
+  });
+});
+
+describe("a patch's effect", () => {
+  it("runs on undo and redo, not on apply", () => {
+    const calls: string[] = [];
+    const store = new NoteStore([note("a", "flutes")]);
+    store.apply({
+      ...changeInstrument(store.notes, "flutes", "violin"),
+      effect: { undo: () => calls.push("undo"), redo: () => calls.push("redo") },
+    });
+    expect(calls).toEqual([]);
+    store.undo();
+    store.redo();
+    expect(calls).toEqual(["undo", "redo"]);
   });
 });
 

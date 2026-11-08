@@ -64,12 +64,14 @@ def fit_pitch(pitch: int, tuning: str, capo: int) -> int:
     return pitch
 
 
-def _choices(pitch: int, strings: tuple[int, ...], capo: int) -> list[tuple[int, int]]:
-    """(string, fret) pairs that play `pitch`."""
+def _choices(
+    pitch: int, strings: tuple[int, ...], capo: int, blocked: frozenset[int] = frozenset()
+) -> list[tuple[int, int]]:
+    """(string, fret) pairs that play `pitch`, on strings not in `blocked`."""
     out = []
     for index, open_pitch in enumerate(strings):
         fret = pitch - open_pitch - capo
-        if 0 <= fret <= MAX_FRET:
+        if 0 <= fret <= MAX_FRET and index + 1 not in blocked:
             out.append((index + 1, fret))
     return out
 
@@ -90,10 +92,14 @@ def _local_cost(frets: tuple[int, ...]) -> float:
 
 
 def _fingerings(
-    pitches: list[int], strings: tuple[int, ...], capo: int, max_span: int
+    pitches: list[int],
+    strings: tuple[int, ...],
+    capo: int,
+    max_span: int,
+    blocked: frozenset[int] = frozenset(),
 ) -> list[tuple[tuple[int, int], ...]]:
     """Every way to play all of `pitches` at once, one string each."""
-    options = [_choices(p, strings, capo) for p in pitches]
+    options = [_choices(p, strings, capo, blocked) for p in pitches]
     found = []
     for combo in product(*options):
         used = [s for s, _ in combo]
@@ -106,7 +112,9 @@ def _fingerings(
     return found[:BEAM]
 
 
-def _playable(pitches: list[int], strings: tuple[int, ...], capo: int):
+def _playable(
+    pitches: list[int], strings: tuple[int, ...], capo: int, blocked: frozenset[int] = frozenset()
+):
     """Fingerings for `pitches`, and the pitches they cover.
 
     A hand spans four frets, so a chord that doesn't fit loses inner notes,
@@ -114,7 +122,7 @@ def _playable(pitches: list[int], strings: tuple[int, ...], capo: int):
     """
     kept = list(pitches)
     while kept:
-        found = _fingerings(kept, strings, capo, MAX_SPAN)
+        found = _fingerings(kept, strings, capo, MAX_SPAN, blocked)
         if found:
             return kept, found
         if len(kept) <= 2:
@@ -132,11 +140,8 @@ def fret_groups(groups: list[list[int]], tuning: str, capo: int = 0) -> FretResu
     for group in groups:
         fitted = {}
         for source in group:
-            if source in fitted:
-                continue
-            fitted[source] = fit_pitch(source, tuning, capo)
-            if fitted[source] != source:
-                result.moved += 1
+            if source not in fitted:
+                fitted[source] = fit_pitch(source, tuning, capo)
         unique = sorted(set(fitted.values()))
         if len(unique) > len(strings):
             # The lowest and the highest carry the music: keep them, then the top.
@@ -179,5 +184,32 @@ def fret_groups(groups: list[list[int]], tuning: str, capo: int = 0) -> FretResu
                 frets.append(Fret(source, pitch, None, None))
             else:
                 frets.append(Fret(source, pitch, spot[0], spot[1]))
+                result.moved += pitch != source
         result.groups.append(frets)
     return result
+
+
+def refret_group(
+    group: list[Fret], tuning: str, capo: int, blocked: set[int], near: int | None
+) -> list[Fret]:
+    """`group` again, off the strings in `blocked`: notes held by ties are on them.
+
+    The notes it played stay wanted, and the fingering closest to the hand's
+    position `near` wins. Notes no free string can take are left out.
+    """
+    strings = TUNINGS[tuning]
+    wanted = sorted({f.pitch for f in group if f.string is not None})
+    kept, options = _playable(wanted, strings, capo, frozenset(blocked))
+
+    def cost(combo) -> float:
+        frets = tuple(f for _, f in combo)
+        here = _position(frets)
+        move = abs(here - near) if here is not None and near is not None else 0
+        return _local_cost(frets) + MOVE_COST * move
+
+    placed = dict(zip(kept, min(options, key=cost)))
+    out = []
+    for f in group:
+        spot = placed.pop(f.pitch, None) if f.string is not None else None
+        out.append(Fret(f.source, f.pitch, *spot) if spot else Fret(f.source, f.pitch, None, None))
+    return out

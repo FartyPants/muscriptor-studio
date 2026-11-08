@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from studio.fretboard import TUNINGS, fret_groups
+from studio.fretboard import TUNINGS, Fret, fret_groups, refret_group
 
 STEPS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 SHARP_NAMES = [("C", 0), ("C", 1), ("D", 0), ("D", 1), ("E", 0), ("F", 0),
@@ -72,8 +72,8 @@ def _is_continuation(note: ET.Element) -> bool:
     return any(t.get("type") == "stop" for t in note.findall("tie"))
 
 
-def _starts(measure: ET.Element) -> dict[int, int]:
-    """Each note's start in divisions, keyed by id(note), and the measure's end position."""
+def _starts(measure: ET.Element) -> tuple[dict[int, int], int]:
+    """Each note's start in divisions, keyed by id(note), and where the measure ends."""
     pos = 0
     last = 0
     starts = {}
@@ -89,8 +89,15 @@ def _starts(measure: ET.Element) -> dict[int, int]:
                 starts[id(e)] = last = pos
                 if e.find("grace") is None:
                     pos += int(e.findtext("duration") or 0)
-    starts[-1] = pos
-    return starts
+    return starts, pos
+
+
+def _shift_at(measure: ET.Element, shift: int) -> int:
+    """Semitones from written to sounding pitch, from this measure on."""
+    transpose = measure.find("attributes/transpose")
+    if transpose is None:
+        return shift
+    return int(float(transpose.findtext("chromatic") or 0)) + 12 * int(transpose.findtext("octave-change") or 0)
 
 
 def _tuning_details(tuning: str, capo: int) -> ET.Element:
@@ -141,8 +148,12 @@ def _add_tab_attributes(measure: ET.Element, tuning: str, capo: int) -> None:
     attributes.insert(after + 1, _tuning_details(tuning, capo))
 
 
-def _tab_copy(note: ET.Element, spot: tuple[int, int, int] | None) -> ET.Element:
-    """`note` for staff 2: its fitted pitch with a string and fret, or a hidden rest."""
+def _tab_copy(note: ET.Element, spot: Fret | None, shift: int) -> ET.Element:
+    """`note` for staff 2: its fitted pitch with a string and fret, or a hidden rest.
+
+    `shift` is the part's written-to-sounding distance: frets play sounding
+    pitches, while `<pitch>` stays written, as the part's `<transpose>` expects.
+    """
     tab = copy.deepcopy(note)
     for name in LAYOUT_ATTRIBUTES:
         tab.attrib.pop(name, None)
@@ -166,47 +177,105 @@ def _tab_copy(note: ET.Element, spot: tuple[int, int, int] | None) -> ET.Element
         tab.set("print-object", "no")
         _set_staff(tab, 2)
         return tab
-    pitch, string, fret = spot
-    source = _pitch_of(tab)
     octave = tab.find("pitch/octave")
-    octave.text = str(int(octave.text) + (pitch - source) // 12)
+    octave.text = str(int(octave.text) + (spot.pitch - (_pitch_of(tab) + shift)) // 12)
     notations = tab.find("notations")
     if notations is None:
         notations = ET.SubElement(tab, "notations")
     technical = ET.SubElement(notations, "technical")
-    ET.SubElement(technical, "string").text = str(string)
-    ET.SubElement(technical, "fret").text = str(fret)
+    ET.SubElement(technical, "string").text = str(spot.string)
+    ET.SubElement(technical, "fret").text = str(spot.fret)
     _set_staff(tab, 2)
     return tab
 
 
+def _hand_lead_to(lead: ET.Element, first: ET.Element) -> None:
+    """`first` was its chord's lead: `lead` takes over what only a lead carries."""
+    mark = lead.find("chord")
+    if mark is not None:
+        lead.remove(mark)
+    tuplets = first.findall("notations/tuplet")
+    if tuplets:
+        notations = lead.find("notations")
+        if notations is None:
+            notations = ET.SubElement(lead, "notations")
+        notations.extend(copy.deepcopy(t) for t in tuplets)
+
+
 def add_tab_staff(root: ET.Element, instrument: str, tuning: str, capo: int) -> dict[str, Any] | None:
-    """Give `instrument`'s part a tab staff. None when no pitched part plays it."""
+    """Give `instrument`'s part a tab staff. None when no one-staff pitched part plays it."""
     part = find_part(root, instrument)
     if part is None:
         return None
     measures = part.findall("measure")
-    starts = [_starts(m) for m in measures]
+    if measures[0].find("attributes/staves") is not None:
+        return None
 
-    # Notes that start together, across voices, are one chord for the hand.
-    keyed: dict[tuple[int, int], list[ET.Element]] = defaultdict(list)
+    # What sounds at each onset, across voices: new notes are one chord for
+    # the hand, and tied notes keep the string they started on.
+    new: dict[tuple[int, int], list[tuple[ET.Element, int]]] = defaultdict(list)
+    tied: dict[tuple[int, int], list[tuple[ET.Element, int]]] = defaultdict(list)
+    ends: list[int] = []
+    shifts: list[int] = []
+    shift = 0
     for index, measure in enumerate(measures):
+        shift = _shift_at(measure, shift)
+        shifts.append(shift)
+        starts, end = _starts(measure)
+        ends.append(end)
         for note in measure.findall("note"):
-            if _pitch_of(note) is None or _is_continuation(note):
-                continue
-            keyed[(index, starts[index][id(note)])].append(note)
-    order = sorted(keyed)
-    result = fret_groups([[_pitch_of(n) for n in keyed[k]] for k in order], tuning, capo)
-    spots: dict[int, tuple[int, int, int] | None] = {}
-    for key, frets in zip(order, result.groups):
-        for note, fret in zip(keyed[key], frets):
-            spots[id(note)] = (fret.pitch, fret.string, fret.fret) if fret.string else None
+            written = _pitch_of(note)
+            if written is not None:
+                onset = (index, starts[id(note)])
+                (tied if _is_continuation(note) else new)[onset].append((note, written + shift))
+
+    order = sorted(new)
+    result = fret_groups([[pitch for _, pitch in new[key]] for key in order], tuning, capo)
+    chosen = dict(zip(order, result.groups))
+
+    # In time order, so each tie finds where its note started and a new chord
+    # stays off the strings tied notes are still ringing on.
+    spots: dict[int, Fret | None] = {}
+    held: dict[int, Fret] = {}  # sounding pitch -> where its tie started
+    near: int | None = None
+
+    def carry_tie(note: ET.Element, pitch: int, spot: Fret | None) -> None:
+        if spot is not None and any(t.get("type") == "start" for t in note.findall("tie")):
+            held[pitch] = spot
+        else:
+            held.pop(pitch, None)
+
+    for key in sorted(set(new) | set(tied)):
+        blocked = set()
+        seen = set()
+        for note, pitch in tied.get(key, []):
+            # In unison voices only the first has a note to continue.
+            spot = held.get(pitch) if pitch not in seen else None
+            seen.add(pitch)
+            spots[id(note)] = spot
+            if spot is not None:
+                blocked.add(spot.string)
+            carry_tie(note, pitch, spot)
+        frets = chosen.get(key, [])
+        if any(f.string in blocked for f in frets):
+            before = frets
+            frets = refret_group(frets, tuning, capo, blocked, near)
+            for old, fresh in zip(before, frets):
+                if old.string is not None and fresh.string is None:
+                    result.dropped += 1
+                    result.moved -= old.pitch != old.source
+        for (note, pitch), fret in zip(new.get(key, []), frets):
+            spot = fret if fret.string is not None else None
+            spots[id(note)] = spot
+            carry_tie(note, pitch, spot)
+        fretted = [f.fret for f in frets if f.string is not None and f.fret > 0]
+        if fretted:
+            near = min(fretted)
 
     _add_tab_attributes(measures[0], tuning, capo)
     if capo:
         first = measures[0]
         first.insert(list(first).index(first.find("attributes")) + 1, _capo_mark(capo))
-    held: dict[int, tuple[int, int, int]] = {}  # written pitch -> where its tie started
     for index, measure in enumerate(measures):
         elements = list(measure)
         copies: list[ET.Element] = []
@@ -227,23 +296,17 @@ def add_tab_staff(root: ET.Element, instrument: str, tuning: str, capo: int) -> 
             kept = []
             for note in cluster:
                 _set_staff(note, 1)
-                pitch = _pitch_of(note)
-                if pitch is None:
-                    kept.append(_tab_copy(note, None))
-                    continue
-                spot = held.get(pitch) if _is_continuation(note) else spots.get(id(note))
-                if spot is not None and any(t.get("type") == "start" for t in note.findall("tie")):
-                    held[pitch] = spot
-                if spot is not None:
-                    kept.append(_tab_copy(note, spot))
+                if note.find("pitch") is None:
+                    kept.append(_tab_copy(note, None, shifts[index]))
+                elif spots.get(id(note)) is not None:
+                    kept.append(_tab_copy(note, spots[id(note)], shifts[index]))
             if not kept:
                 # Nothing of it could be played: a hidden rest keeps the time.
-                kept = [_tab_copy(cluster[0], None)]
-            lead = kept[0].find("chord")
-            if lead is not None:
-                kept[0].remove(lead)
+                kept = [_tab_copy(cluster[0], None, shifts[index])]
+            elif cluster[0].find("pitch") is not None and spots.get(id(cluster[0])) is None:
+                _hand_lead_to(kept[0], cluster[0])
             copies.extend(kept)
         backup = ET.SubElement(measure, "backup")
-        ET.SubElement(backup, "duration").text = str(starts[index][-1])
+        ET.SubElement(backup, "duration").text = str(ends[index])
         measure.extend(copies)
     return {"moved": result.moved, "dropped": result.dropped}

@@ -285,3 +285,91 @@ class TestChordDiagrams:
         add_chords(root, [chord(0.0), chord(9.0)], [None, None], placed)
         assert placed == [0]
         assert root.find(".//harmony/frame") is None
+
+
+def guitar_score() -> ET.Element:
+    return ET.fromstring(
+        '<score-partwise><part-list><score-part id="P1"><part-name>Classical Guitar, acoustic guitar</part-name>'
+        '</score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>"
+        "<note><pitch><step>E</step><octave>3</octave></pitch><duration>16</duration><voice>1</voice></note>"
+        "</measure></part></score-partwise>"
+    )
+
+
+class TestFretboardInTheScore:
+    def test_prepare_reports_the_tab_and_the_diagrams(self, tmp_path):
+        from studio.tab import Fretboard
+
+        xml = tmp_path / "s.musicxml"
+        ET.ElementTree(guitar_score()).write(xml)
+        info = prepare_musicxml(
+            xml, midi_file(tmp_path / "a.mid"), C_MAJOR, True, Fretboard(tab="acoustic_guitar", diagrams=True)
+        )
+        assert info["tab"] == {"moved": 0, "dropped": 0}
+        assert info["diagrams"] is None or len(info["diagrams"]) == info["chords"]
+        assert ET.parse(xml).getroot().find(".//clef[@number='2']/sign").text == "TAB"
+
+    def test_without_a_choice_there_is_neither(self, tmp_path):
+        xml = tmp_path / "s.musicxml"
+        ET.ElementTree(guitar_score()).write(xml)
+        info = prepare_musicxml(xml, midi_file(tmp_path / "a.mid"), C_MAJOR, False)
+        assert info["tab"] is None and info["diagrams"] is None
+
+
+class TestWriteScore:
+    @pytest.fixture
+    def engraved(self, monkeypatch, tmp_path):
+        """`write_score` with MuseScore replaced: which file fed which output."""
+        import studio.engrave as engrave
+
+        calls = {"run": [], "parts": []}
+        source = tmp_path / "work.musicxml"
+        ET.ElementTree(guitar_score()).write(source)
+
+        def score_files(binary, midi_path, work, quantized, key, with_chords, fretboard=None):
+            calls["fretboard"] = fretboard
+            plain = work / "score.musicxml"
+            plain.write_bytes(source.read_bytes())
+            return plain, {}
+
+        def run(binary, args):
+            out, src = Path(args[1]), Path(args[2])
+            calls["run"].append((out.name, src.name))
+            out.write_text("<museScore><Score/></museScore>")
+
+        def parts(binary, mscx, out_dir, suffix="", only=None):
+            calls["parts"].append((Path(mscx).name, suffix, only))
+            path = out_dir / f"01_part{suffix}.pdf"
+            path.write_bytes(b"x")
+            return [path]
+
+        monkeypatch.setattr(engrave, "find_musescore", lambda: "ms")
+        monkeypatch.setattr(engrave, "_score_files", score_files)
+        monkeypatch.setattr(engrave, "_run", run)
+        monkeypatch.setattr(engrave, "_write_part_pdfs", parts)
+        return calls
+
+    def test_the_tab_goes_to_the_full_score_and_one_part(self, engraved, tmp_path):
+        from studio.engrave import write_score
+        from studio.tab import Fretboard
+
+        out = tmp_path / "out"
+        written = write_score(b"MThd", out, True, None, True, "a4", Fretboard(tab="acoustic_guitar", diagrams=True))
+        assert ("full_score.pdf", "tabbed.mscx") in engraved["run"]
+        assert engraved["parts"] == [("score.mscx", "", None), ("tabbed.mscx", "_tab", {0})]
+        assert "<sign>TAB</sign>" in (out / "score.musicxml").read_text(encoding="utf-8")
+        assert "01_part_tab.pdf" in {p.name for p in written}
+        # The plain copy gets diagrams from the choice, but not the tab.
+        assert engraved["fretboard"].tab is None and engraved["fretboard"].diagrams is True
+
+    def test_without_a_tab_there_is_no_tab_pdf(self, engraved, tmp_path):
+        from studio.engrave import write_score
+
+        out = tmp_path / "out"
+        written = write_score(b"MThd", out, True, None, True, "a4", None)
+        assert ("full_score.pdf", "score.mscx") in engraved["run"]
+        assert engraved["parts"] == [("score.mscx", "", None)]
+        assert "<sign>TAB</sign>" not in (out / "score.musicxml").read_text(encoding="utf-8")
+        assert not [p for p in written if p.name.endswith("_tab.pdf")]
+

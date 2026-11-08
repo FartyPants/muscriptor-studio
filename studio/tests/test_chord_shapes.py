@@ -39,9 +39,20 @@ def test_a_slash_chord_puts_its_bass_lowest():
 
 
 def test_high_shapes_show_their_first_fret():
-    shape = chord_shape(pitch_class("B"), "m7", None, "ukulele")
-    fretted = [f for f in shape.frets if f]
-    assert shape.first_fret == (1 if max(fretted) <= WINDOW else min(fretted))
+    # Cdim sits at frets 7 to 10, low strings muted.
+    shape = chord_shape(pitch_class("C"), "dim", None, "guitar")
+    assert shape.frets == (8, 7, 8, 10, None, None)
+    assert shape.first_fret == 7
+
+
+def test_a_shape_crossing_fret_four_starts_at_its_lowest_fret():
+    shape = chord_shape(pitch_class("E"), "dim", None, "guitar")
+    assert shape.frets == (3, 5, 3, 2, None, None)
+    assert shape.first_fret == 2
+
+
+def test_a_shape_within_four_frets_starts_at_the_nut():
+    assert chord_shape(pitch_class("B"), "m7", None, "ukulele").first_fret == 1
 
 
 def test_from_a_detected_chord():

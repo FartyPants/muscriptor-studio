@@ -36,3 +36,18 @@ export function movedFlag(set: Set<string>, from: string, to: string, merged: bo
   if (!merged) next.add(to);
   return next;
 }
+
+/** Mute or solo state once the change from `from` to `to` is undone. `had`: `from` was set. */
+export function restoredFlag(
+  set: Set<string>,
+  from: string,
+  to: string,
+  merged: boolean,
+  had: boolean,
+): Set<string> {
+  if (!had) return set;
+  const next = new Set(set);
+  if (!merged) next.delete(to);
+  next.add(from);
+  return next;
+}

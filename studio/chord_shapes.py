@@ -112,9 +112,6 @@ def chord_shape(root: int, quality: str, bass: int | None, tuning: str, capo: in
             sounding = {(strings[s] + capo + f) % 12 for s, f in played}
             if not required <= sounding:
                 continue
-            fretted = [f for _, f in played if f > 0]
-            if fretted and max(fretted) - min(fretted) >= WINDOW:
-                continue
             if _fingers(frets) > FINGERS:
                 continue
             cost = _cost(frets)

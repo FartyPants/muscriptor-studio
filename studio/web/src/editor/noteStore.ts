@@ -5,6 +5,8 @@ export type Patch = {
   add?: ProjectNote[];
   remove?: ProjectNote[];
   update?: { before: ProjectNote; after: ProjectNote }[];
+  /** What else moved with the notes, for undo and redo to put right. */
+  effect?: { undo: () => void; redo: () => void };
 };
 
 const UNDO_LIMIT = 500;
@@ -66,6 +68,7 @@ export class NoteStore {
     const patch = this.undoStack.pop();
     if (!patch) return;
     this.run(inverse(patch));
+    patch.effect?.undo();
     this.redoStack.push(patch);
     this.notify();
   }
@@ -74,6 +77,7 @@ export class NoteStore {
     const patch = this.redoStack.pop();
     if (!patch) return;
     this.run(patch);
+    patch.effect?.redo();
     this.undoStack.push(patch);
     this.notify();
   }

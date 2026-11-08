@@ -84,7 +84,7 @@ def two_voices():
 def test_each_voice_of_the_tab_staff_fills_the_measure():
     root = two_voices()
     report = add_tab_staff(root, "acoustic_guitar", "guitar", 0)
-    assert report == {"moved": 1, "dropped": 0}  # the low C2 goes up to C3
+    assert report == {"moved": 0, "dropped": 0}  # the low C2 is the C3 already in the chord
     for measure in root.iter("measure"):
         ends = staff_end(measure, 2)
         assert ends and all(end == 16 for end in ends.values()), ends
@@ -212,4 +212,95 @@ def test_tabbed_copy_names_the_part(tmp_path):
     assert tabbed_copy(source, out, Fretboard(tab="acoustic_guitar")) == 0
     assert "<sign>TAB</sign>" in out.read_text(encoding="utf-8")
     assert "<sign>TAB</sign>" not in source.read_text(encoding="utf-8")
+
+
+def transposed(root, chromatic, octave=0):
+    attributes = root.find("part/measure/attributes")
+    transpose = ET.SubElement(attributes, "transpose")
+    ET.SubElement(transpose, "diatonic").text = "0"
+    ET.SubElement(transpose, "chromatic").text = str(chromatic)
+    if octave:
+        ET.SubElement(transpose, "octave-change").text = str(octave)
+    return root
+
+
+def where(n):
+    return (n.findtext("notations/technical/string"), n.findtext("notations/technical/fret"))
+
+
+def test_frets_play_the_sounding_pitch_of_a_transposing_part():
+    # Tenor sax: written D5 sounds C4, which is string 2, fret 1.
+    root = transposed(score([[note(74, 16, kind="whole")]]), -2, -1)
+    assert add_tab_staff(root, "acoustic_guitar", "guitar", 0) == {"moved": 0, "dropped": 0}
+    tab = tab_notes(root.find("part/measure"))[0]
+    assert where(tab) == ("2", "1")
+    assert _pitch_of(tab) == 74  # still written as the part's <transpose> expects
+
+
+def test_an_octave_move_on_a_transposing_part_keeps_the_written_pitch_consistent():
+    # Written C3 with octave-change -1 sounds C2 (36): played at C3 (48), so written C4.
+    root = transposed(score([[note(48, 16, kind="whole")]]), 0, -1)
+    assert add_tab_staff(root, "acoustic_guitar", "guitar", 0)["moved"] == 1
+    tab = tab_notes(root.find("part/measure"))[0]
+    assert _pitch_of(tab) == 60 and where(tab) == ("5", "3")
+
+
+def test_a_new_note_stays_off_the_string_of_a_tied_note():
+    # A3 is held on string 3 from the bar before when G3 starts: G3's natural
+    # home, open string 3, is taken.
+    root = score([
+        [note(None, 12, kind="half"), note(57, 4, tie="start"), BACKUP.replace("16", "16")],
+        [note(57, 8, tie="stop", kind="half"), note(55, 8, chord=True, kind="half"), note(None, 8, kind="half")],
+    ])
+    add_tab_staff(root, "acoustic_guitar", "guitar", 0)
+    held, fresh = [n for n in tab_notes(root.findall("part/measure")[1]) if n.find("pitch") is not None]
+    assert where(held)[0] != where(fresh)[0]
+    assert _pitch_of(fresh) == 55
+
+
+def test_a_tie_whose_start_was_left_out_leaves_no_orphan():
+    # A held A4 from earlier, then a chord too wide for the ukulele drops a later
+    # tied-from note: its stop must not print from the older tie.
+    chord = [60, 64, 67, 69, 71]
+    first = [note(69, 16, tie="start", kind="whole")]
+    second = [note(69, 16, tie="stop", kind="whole")]
+    wide = [note(p, 16, chord=i > 0, tie="start" if p == 64 else None, kind="whole") for i, p in enumerate(chord)]
+    after = [note(64, 16, tie="stop", kind="whole")]
+    root = score([first, second, wide, after])
+    add_tab_staff(root, "acoustic_guitar", "ukulele", 0)
+    measures = root.findall("part/measure")
+    assert where(tab_notes(measures[0])[0]) == where(tab_notes(measures[1])[0]) != (None, None)
+    pitches_kept = {_pitch_of(n) for n in tab_notes(measures[2]) if n.find("pitch") is not None}
+    assert 64 not in pitches_kept
+    assert tab_notes(measures[3])[0].find("pitch") is None  # a hidden rest
+
+
+def test_a_stop_ends_the_tie():
+    root = score([
+        [note(57, 16, tie="start", kind="whole")],
+        [note(57, 16, tie="stop", kind="whole")],
+        [note(57, 16, tie="stop", kind="whole")],  # a stray stop has nothing to continue
+    ])
+    add_tab_staff(root, "acoustic_guitar", "guitar", 0)
+    assert tab_notes(root.findall("part/measure")[2])[0].find("pitch") is None
+
+
+def test_a_dropped_lead_hands_over_its_tuplet():
+    chord = [64, 48, 60, 67, 69, 71]
+    tuplet = '<notations><tuplet type="start"/></notations>'
+    notes = [note(p, 16, chord=i > 0, kind="whole") for i, p in enumerate(chord)]
+    notes[0] = notes[0].replace("</note>", tuplet + "</note>")
+    root = score([notes])
+    add_tab_staff(root, "acoustic_guitar", "ukulele", 0)
+    tab = tab_notes(root.find("part/measure"))
+    assert [t.get("type") for t in tab[0].findall("notations/tuplet")] == ["start"]
+    assert all(n.find("notations/tuplet") is None for n in tab[1:])
+
+
+def test_a_part_already_on_two_staves_is_left_alone():
+    root = two_voices()
+    attributes = root.find("part/measure/attributes")
+    ET.SubElement(attributes, "staves").text = "2"
+    assert add_tab_staff(root, "acoustic_guitar", "guitar", 0) is None
+    assert not list(root.iter("staff"))
 

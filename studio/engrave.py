@@ -311,7 +311,7 @@ def prepare_musicxml(
         shapes = [shape_for_chord(c, fretboard.tuning, fretboard.capo) for c in chords]
     placed: list[int] = []
     written = add_chords(root, chords, shapes, placed) if chords else 0
-    diagrams = [shapes[i].as_json() if shapes[i] else None for i in placed] if shapes is not None else None
+    diagrams = [shapes[i].as_json() if shapes[i] else None for i in placed] if shapes else None
     tab = None
     if fretboard is not None and fretboard.tab:
         tab = add_tab_staff(root, fretboard.tab, fretboard.tuning, fretboard.capo)

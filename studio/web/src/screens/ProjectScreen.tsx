@@ -12,7 +12,7 @@ import { EditControls, RollToolbar } from "../components/Toolbar";
 import { TopBar } from "../components/TopBar";
 import { TranscribeBar } from "../components/TranscribeBar";
 import { Transport, type ProjectView } from "../components/Transport";
-import { canChangeInstrument, changeInstrument, movedFlag } from "../editor/changeInstrument";
+import { canChangeInstrument, changeInstrument, movedFlag, restoredFlag } from "../editor/changeInstrument";
 import { useEditorKeys } from "../hooks/useEditorKeys";
 import { gridWithMeter, useProject, type Range } from "../hooks/useProject";
 import { useRollFrame } from "../hooks/useRollFrame";
@@ -201,12 +201,28 @@ export function ProjectScreen({
     const store = project.store.current;
     if (!store) return;
     const merged = names.includes(to);
-    store.apply(changeInstrument(store.notes, from, to));
-    setMuted((m) => movedFlag(m, from, to, merged));
-    setSolo((s) => movedFlag(s, from, to, merged));
+    const wasMuted = muted.has(from);
+    const wasSolo = solo.has(from);
+    const hadTab = doc?.fretboard?.tab === from;
+    // Mutes, solos and the tab follow the track, and come back with an undo.
     // The tab follows a renamed track; a merged one has no part of its own.
-    const fretboard = doc?.fretboard;
-    if (fretboard?.tab === from) project.chooseFretboard({ ...fretboard, tab: merged ? null : to });
+    const forward = () => {
+      setMuted((m) => movedFlag(m, from, to, merged));
+      setSolo((s) => movedFlag(s, from, to, merged));
+      if (hadTab) project.moveTab(from, merged ? null : to);
+    };
+    store.apply({
+      ...changeInstrument(store.notes, from, to),
+      effect: {
+        redo: forward,
+        undo: () => {
+          setMuted((m) => restoredFlag(m, from, to, merged, wasMuted));
+          setSolo((s) => restoredFlag(s, from, to, merged, wasSolo));
+          if (hadTab) project.moveTab(merged ? null : to, from);
+        },
+      },
+    });
+    forward();
     if (active === from) {
       setActive(to);
       editorRef.current?.setActive(to);
@@ -357,6 +373,7 @@ export function ProjectScreen({
                 rollRef.current?.unfollow();
               }}
               tracks={tabTracks}
+              muted={[...muted, ...names.filter((name) => solo.size > 0 && !solo.has(name))]}
               onFretboard={project.chooseFretboard}
             />
           )}

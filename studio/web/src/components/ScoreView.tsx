@@ -32,12 +32,16 @@ const KEY_WAIT_MS = 3000;
 /** The playing system sits this far below the top when Follow scrolls to it. */
 const FOLLOW_MARGIN = 48;
 
+/** Where a chord diagram is drawn, in pixels from the top left of the score. */
+type DiagramArea = { x: number; y: number; width: number; height: number };
+
 type Drawn = {
   view: View;
   boxes: MeasureBox[];
   page: HTMLElement;
   /** How far above a staff its chord diagrams reach, in pixels. */
   reach: number;
+  diagrams: DiagramArea[];
 };
 type Source = {
   notes: ProjectNote[];
@@ -100,11 +104,18 @@ function chordSpots(measureList: unknown): ChordSpot[] {
 }
 
 /** Chord diagrams above their chord names, drawn over the score. */
-function drawDiagrams(host: HTMLElement, view: View, spots: ChordSpot[], zoom: number, at: { x: number; y: number }) {
+function drawDiagrams(
+  host: HTMLElement,
+  view: View,
+  spots: ChordSpot[],
+  zoom: number,
+  at: { x: number; y: number },
+): DiagramArea[] {
   const shapes = view.diagrams;
   // Paired by order: if OSMD drew a different number of chord symbols, the
   // pairs would be wrong, so none are drawn.
-  if (!shapes || shapes.length !== spots.length) return;
+  if (!shapes || shapes.length !== spots.length) return [];
+  const areas: DiagramArea[] = [];
   const unit = 10 * zoom;
   const ink = getComputedStyle(document.documentElement).getPropertyValue("--color-content").trim() || "#e6e8ee";
   // Chords a beat apart can sit closer than a diagram is wide: a crowded
@@ -123,6 +134,7 @@ function drawDiagrams(host: HTMLElement, view: View, spots: ChordSpot[], zoom: n
     const sky = line.origin.y + line.sky.getSkyLineMinForLabel(from, from + size.width + 2 * SKY_MARGIN);
     const x = at.x + left * unit;
     const y = at.y + (sky - DIAGRAM_GAP - size.height) * unit;
+    areas.push({ x, y, width: size.width * unit, height: size.height * unit });
     return `<g class="chord-diagram">${diagramSvg(shape, x, y, unit, ink)}</g>`;
   });
   const layer = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -130,12 +142,15 @@ function drawDiagrams(host: HTMLElement, view: View, spots: ChordSpot[], zoom: n
   layer.setAttribute("aria-hidden", "true");
   layer.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none";
   layer.innerHTML = parts.join("");
-  host.style.position = host.style.position || "relative";
   host.appendChild(layer);
+  return areas;
 }
 
 /** Engrave `view` into `host`, which must be laid out at its final width. */
-async function draw(host: HTMLElement, view: View): Promise<{ boxes: MeasureBox[]; reach: number }> {
+async function draw(
+  host: HTMLElement,
+  view: View,
+): Promise<{ boxes: MeasureBox[]; reach: number; diagrams: DiagramArea[] }> {
   // Loaded only when the score is first shown, so the roll doesn't wait for it.
   const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
   const osmd = new OpenSheetMusicDisplay(host, {
@@ -176,9 +191,9 @@ async function draw(host: HTMLElement, view: View): Promise<{ boxes: MeasureBox[
   const offsetY = svg
     ? svg.getBoundingClientRect().top - host.getBoundingClientRect().top
     : 0;
-  if (view.diagrams) {
-    drawDiagrams(host, view, chordSpots(osmd.GraphicSheet.MeasureList), osmd.Zoom, { x: offsetX, y: offsetY });
-  }
+  const diagrams = view.diagrams
+    ? drawDiagrams(host, view, chordSpots(osmd.GraphicSheet.MeasureList), osmd.Zoom, { x: offsetX, y: offsetY })
+    : [];
   const boxes = measureBoxes(osmd.GraphicSheet.MeasureList as never, osmd.Zoom).map(
     (b) => ({
       ...b,
@@ -189,7 +204,7 @@ async function draw(host: HTMLElement, view: View): Promise<{ boxes: MeasureBox[
   );
   // Diagrams can sit well above their staff, over high notes and the chord name.
   const reach = view.diagrams ? (size.height + 2 * DIAGRAM_GAP + DIAGRAM_REACH) * 10 * osmd.Zoom : 0;
-  return { boxes, reach };
+  return { boxes, reach, diagrams };
 }
 
 /** The notes as sheet music, with a playhead. Engraves again after changes. */
@@ -209,10 +224,12 @@ export function ScoreView(props: {
   onUserScroll: () => void;
   /** Pitched tracks that can take tab, most notes first. */
   tracks: string[];
+  /** Tracks silenced by a mute or by another track's solo. */
+  muted: string[];
   onFretboard: (next: Fretboard) => void;
 }) {
   const { doc, notes, silenced, keyInUse, keyReady, audio, visible, following } = props;
-  const { onUserScroll, tracks, onFretboard } = props;
+  const { onUserScroll, tracks, muted, onFretboard } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -275,7 +292,7 @@ export function ScoreView(props: {
       page.style.cssText =
         "position:absolute;inset:0 0 auto 0;visibility:hidden";
       content.current.appendChild(page);
-      let drawnPage: { boxes: MeasureBox[]; reach: number };
+      let drawnPage: { boxes: MeasureBox[]; reach: number; diagrams: DiagramArea[] };
       try {
         drawnPage = await draw(page, view);
       } catch (e) {
@@ -365,7 +382,9 @@ export function ScoreView(props: {
     const y = e.clientY - box.top;
     // Chord diagrams sit above their staff: a click on one counts as a click
     // on the measure under it.
-    const time = timeAt(score.view, score.boxes, x, y) ?? timeAbove(score.view, score.boxes, x, y, score.reach);
+    const onDiagram = score.diagrams.some((d) => x >= d.x && x <= d.x + d.width && y >= d.y && y <= d.y + d.height);
+    const time =
+      timeAt(score.view, score.boxes, x, y) ?? (onDiagram ? timeAbove(score.view, score.boxes, x, y, score.reach) : null);
     if (time === null) return;
     audio.seek(Math.min(time, audio.duration || time));
     lastMeasure.current = -1;
@@ -406,7 +425,7 @@ export function ScoreView(props: {
             <span className="truncate text-faint">{tabText}</span>
           )}
         </span>
-        <ScoreOptions value={doc.fretboard} tracks={tracks} onChange={onFretboard} />
+        <ScoreOptions value={doc.fretboard} tracks={tracks} muted={muted} onChange={onFretboard} />
         <Button
           disabled={busy || notes.length === 0}
           onClick={() => void engrave()}

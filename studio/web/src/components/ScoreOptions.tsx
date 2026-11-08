@@ -19,17 +19,21 @@ export function ScoreOptions(props: {
   value: Fretboard | null | undefined;
   /** Pitched tracks in the score, most notes first. */
   tracks: string[];
+  /** Tracks silenced by a mute or by another track's solo. */
+  muted: string[];
   onChange: (next: Fretboard) => void;
 }) {
-  const { tracks, onChange } = props;
+  const { tracks, muted, onChange } = props;
   const value = { ...NO_FRETBOARD, ...props.value };
-  // A chosen track stays listed while it is muted, so the choice isn't lost.
+  // A chosen track stays listed while it isn't in the score, so the choice isn't lost.
   const listed = value.tab && !tracks.includes(value.tab) ? [...tracks, value.tab] : tracks;
   const trackOptions = [
     { value: "", label: "No tab" },
     ...listed.map((name) => ({
       value: name,
-      label: tracks.includes(name) ? `Tab: ${displayName(name)}` : `Tab: ${displayName(name)} (muted)`,
+      label: tracks.includes(name)
+        ? `Tab: ${displayName(name)}`
+        : `Tab: ${displayName(name)} (${muted.includes(name) ? "muted" : "no notes"})`,
     })),
   ];
   const fretted = Boolean(value.tab) || value.diagrams;

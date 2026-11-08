@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from studio.fretboard import MAX_FRET, TUNINGS, fit_pitch, fret_groups
+from studio.fretboard import MAX_FRET, TUNINGS, Fret, fit_pitch, fret_groups, refret_group
 
 
 def frets_by_string(group, strings):
@@ -90,4 +90,24 @@ def test_a_chord_no_hand_can_hold_loses_inner_notes():
     assert max(fretted) - min(fretted) <= 3
     assert {47, 66} <= {f.pitch for f in played}
     assert result.dropped == 6 - len(played) > 0
+
+
+def test_refret_moves_a_note_off_a_blocked_string():
+    group = fret_groups([[55]], "guitar").groups[0]
+    assert group[0].string == 3 and group[0].fret == 0
+    fresh = refret_group(group, "guitar", 0, {3}, None)
+    assert fresh[0].string == 4 and fresh[0].fret == 5
+
+
+def test_refret_leaves_out_what_no_free_string_can_take():
+    group = [Fret(69, 69, 1, 0)]
+    fresh = refret_group(group, "ukulele", 0, {1, 2, 3, 4}, None)
+    assert fresh[0].string is None
+
+
+def test_moved_counts_only_notes_that_are_played():
+    # Ukulele: 48 and 60 are both C4 once fitted, so only one note sounds.
+    result = fret_groups([[60, 48]], "ukulele")
+    assert result.moved == 0
+    assert [f.string is not None for f in result.groups[0]] == [True, False]
 
