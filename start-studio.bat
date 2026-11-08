@@ -27,7 +27,7 @@ if not errorlevel 1 (
     exit /b 0
 )
 
-rem /health answers but Studio does not: the plain server from start-web.bat.
+rem /health answers but Studio does not: a plain MuScriptor server.
 curl.exe -s -o nul --max-time 2 "%URL%health"
 if not errorlevel 1 (
     echo Another MuScriptor server is using port 8222.
