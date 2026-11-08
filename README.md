@@ -1,3 +1,113 @@
+# MuScriptor Studio
+
+Turn a recording into notes you can edit, hear and export. Studio is a local web interface built on [MuScriptor](https://github.com/muscriptor/muscriptor): a piano roll with note editing, sheet music with chord names, guitar and ukulele tablature and chord diagrams, MIDI, MusicXML and PDF export, and a library of your transcriptions.
+
+**Tested on Windows.** Everything runs on your own computer, from this folder: Python, the packages, MuseScore and the models all stay inside it.
+
+## What you need
+
+- Windows 10 or 11, and [Git](https://git-scm.com/download/win).
+- About 6 GB of disk, plus the models below.
+- An NVIDIA GPU makes transcription much faster. Without one, Studio uses the CPU: choose the Small model.
+- A free [Hugging Face](https://huggingface.co/join) account, to download the transcription models.
+- Keep the folder path short, such as `C:\MuScriptor`. MuseScore's installer fails on very long paths.
+
+## Install with install.bat
+
+```bat
+git clone <repository-url> C:\MuScriptor
+cd /d C:\MuScriptor
+install.bat
+```
+
+`install.bat` fetches uv, Python and the packages, unpacks MuseScore into the folder, and asks which models to download. If it stops, fix what it says and run it again: finished steps are skipped.
+
+Then start Studio with `start-studio.bat`.
+
+Before the models download, accept each model's licence on its page (see [Models](#models)). `install.bat` asks you to log in to Hugging Face when it first needs to: paste an access token from [your settings](https://huggingface.co/settings/tokens). A token with read access is enough.
+
+## Manual install
+
+The same steps by hand, in a Command Prompt (`cmd`), not PowerShell:
+
+```bat
+git clone <repository-url> C:\MuScriptor
+cd /d C:\MuScriptor
+call env.bat
+powershell -NoProfile -ExecutionPolicy Bypass -File install\uv.ps1
+.tools\uv\uv.exe python install 3.13 --no-bin --no-registry
+.tools\uv\uv.exe venv .venv --python 3.13 --managed-python
+.tools\uv\uv.exe export --frozen --no-hashes --no-emit-project --no-dev -q -o .tools\constraints.txt
+.tools\uv\uv.exe pip install --python .venv\Scripts\python.exe --torch-backend=cu128 -c .tools\constraints.txt -e . -r studio\requirements.txt
+```
+
+Without an NVIDIA GPU, use `--torch-backend=cpu`. Don't use `uv sync`: it replaces the GPU build of PyTorch with the CPU one.
+
+**MuseScore** draws the Score tab and the PDFs. Either unpack it into this folder:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File install\musescore.ps1 -Force
+```
+
+or install it the usual way from [musescore.org](https://musescore.org/en/download). Studio finds either one, and everything else works without it.
+
+**Models:** download them as described next, then start Studio with `start-studio.bat`.
+
+## Models
+
+The models aren't in this repository. Their licence is [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. Open each model's page and accept the licence first.
+
+| Model | Page | Download | Parameters | GPU memory | Good for |
+|---|---|---|---|---|---|
+| Small | [muscriptor-small](https://huggingface.co/MuScriptor/muscriptor-small) | 0.4 GB | 100M | 1.5 GB | Computers without a GPU |
+| Medium (recommended) | [muscriptor-medium](https://huggingface.co/MuScriptor/muscriptor-medium) | 1.2 GB | 300M | 3 GB | CPU or GPU |
+| Large | [muscriptor-large](https://huggingface.co/MuScriptor/muscriptor-large) | 5.5 GB | 1.4B | 12 GB | GPU, most accurate |
+| Instrument detection | [ast-finetuned-audioset](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) | 0.3 GB | | | The Detect instruments button |
+
+You need at least one transcription model.
+
+**With the script,** from Command Prompt in this folder (`huggingface` will ask you to log in if needed):
+
+```bat
+call env.bat home
+.venv\Scripts\python.exe -m studio.install_models medium tagger
+```
+
+Name any of `small`, `medium`, `large` and `tagger`. It also fetches the soundfonts and the beat tracker.
+
+**By hand,** download these files from each model's *Files and versions* tab and put them here:
+
+| Model | File on its page | Goes to |
+|---|---|---|
+| Small | `model.safetensors`, `config.json` | `models\small\` |
+| Medium | `model.safetensors`, `config.json` | `models\medium\` |
+| Large | `model.safetensors` | `models\muscriptor-large.safetensors` (renamed) |
+| Large | `config.json` | `models\config.json` |
+| Instrument detection | `model.safetensors`, `config.json`, `preprocessor_config.json` | `models\tagger\` |
+
+Studio only offers the models it finds. The soundfonts and the beat tracker download into `models\` the first time they're needed.
+
+## Moving to another computer
+
+Install on the new computer the same way, choosing no models with `install.bat none`, then copy `models\` across. Copy `studio\data\` too if you want your transcriptions.
+
+## What stays in the folder
+
+| Where | What |
+|---|---|
+| `.tools\` | uv, Python, MuseScore, your Hugging Face login, and MuseScore's settings and logs |
+| `.venv\` | Python packages |
+| `models\` | Models, soundfonts, beat tracker |
+| `studio\data\` | Your transcriptions |
+
+Nothing is added to the Windows app list or to Program Files, and deleting the folder removes it all. If MuseScore was already installed, Studio uses that copy instead, and it's left as it is.
+
+If you change the web code, rebuild it (`npm run build` in `studio\web`) and commit `studio\web_dist`, since the repository ships the built pages.
+
+---
+
+The rest of this page is MuScriptor's own documentation. The code is MIT licensed, by Kyutai and Mirelo; the model weights are CC BY-NC 4.0.
+
 <p align="center">
   <img src="web/logo_muscriptor_final.png" alt="MuScriptor logo" width="300">
 </p>
