@@ -1,6 +1,6 @@
 # MuScriptor Studio
 
-Turn a recording into notes you can edit, hear and export. Studio is a local web interface built on [MuScriptor](https://github.com/muscriptor/muscriptor): a piano roll with note editing, sheet music with chord names, guitar and ukulele tablature and chord diagrams, MIDI, MusicXML and PDF export, and a library of your transcriptions.
+Turn a recording into notes you can edit, hear and export. Drop in an audio file, and Studio writes out what each instrument plays, as MIDI, sheet music, guitar or ukulele tablature, and PDFs. It all runs on your own computer.
 
 ![The piano roll, with chords, instruments and playback](media/ddimage40.jpg)
 
@@ -8,33 +8,143 @@ Turn a recording into notes you can edit, hear and export. Studio is a local web
 |---|---|
 | ![The Score tab, with chord names and a playhead](media/ddimage41.jpg) | ![Editing one instrument's notes on the roll](media/ddimage42.jpg) |
 
-**Tested on Windows.** Everything runs on your own computer, from this folder: Python, the packages, MuseScore and the models all stay inside it.
+**Tested on Windows 10.** Windows only for now.
 
-## What you need
+## How is this different from MuScriptor?
 
-- Windows 10 or 11, and [Git](https://git-scm.com/download/win).
-- About 6 GB of disk, plus the models below.
-- An NVIDIA GPU makes transcription much faster. Without one, Studio uses the CPU: choose the Small model.
-- A free [Hugging Face](https://huggingface.co/join) account, to download the transcription models.
-- Keep the folder path short, such as `C:\MuScriptor`. MuseScore's installer fails on very long paths.
+[MuScriptor](https://github.com/muscriptor/muscriptor) is the transcription engine, made by Kyutai and Mirelo. It listens to a recording and writes out the notes. Studio is an application built around that engine. The transcription itself is the same.
 
-## Install with install.bat
+| | MuScriptor | MuScriptor Studio |
+|---|---|---|
+| Transcribe a recording to MIDI | Yes | Yes |
+| Piano roll while it transcribes | Yes | Yes |
+| Choose a model size | When starting it from the command line | On screen |
+| Edit notes, with undo | | Yes |
+| Change a track's instrument afterwards | | Yes |
+| Keep your songs in a library | | Yes |
+| Re-transcribe all or part of a song | | Yes |
+| Detect which instruments play | | Yes |
+| Key and chord names | | Yes |
+| Sheet music on screen, following playback | | Yes |
+| Guitar and ukulele tablature, with tunings and capo | Automatic, as PDF, from the command line | One chosen track, on screen and in PDF |
+| Chord diagrams | | Yes |
+| PDF and MusicXML with chord names | PDF and MusicXML from the command line | From the Export window |
+| Installs with one double-click | | Yes |
 
-```bat
-git clone https://github.com/FartyPants/muscriptor-studio C:\MuScriptor
-cd /d C:\MuScriptor
-.\install.bat
-```
+## Install
 
-`install.bat` fetches uv, Python and the packages, unpacks MuseScore into the folder, and asks which models to download. If it stops, fix what it says and run it again: finished steps are skipped.
+No programming knowledge needed. You'll click through four steps. Allow **10 to 30 minutes** and **about 7 GB of free disk space**, more if you choose the Large model.
 
-Then start Studio with `start-studio.bat`.
+### Step 1: Get permission to download the models
 
-Before the models download, accept each model's licence on its page (see [Models](#models)). `install.bat` asks you to log in to Hugging Face when it first needs to: paste an access token from [your settings](https://huggingface.co/settings/tokens). A token with read access is enough.
+The models are free for non-commercial use, but their makers ask you to accept the licence on a site called Hugging Face.
 
-## Manual install
+1. Create a free account at <https://huggingface.co/join>, and log in.
+2. Open the page of each transcription model you want and accept its terms. It says "You need to agree to share your Hugging Face information to access this model": click the button below that text. If you're not sure which to get, use Medium:
+   - Medium (recommended): <https://huggingface.co/MuScriptor/muscriptor-medium>
+   - Small, for computers without an NVIDIA graphics card: <https://huggingface.co/MuScriptor/muscriptor-small>
+   - Large, only with 12 GB of graphics memory: <https://huggingface.co/MuScriptor/muscriptor-large>
+3. Open <https://huggingface.co/settings/tokens> and click **Create new token**. Choose the type **Read**, give it any name, and click **Create token**.
+4. Click **Copy**, and keep that page open. You'll paste this token in Step 3.
 
-The same steps by hand, in a Command Prompt (`cmd`), not PowerShell:
+### Step 2: Download Studio
+
+1. Open <https://github.com/FartyPants/muscriptor-studio>.
+2. Click the green **Code** button, then **Download ZIP**.
+3. Open your Downloads folder, right-click `muscriptor-studio-main.zip`, and choose **Extract All...**
+4. In the box that asks where to extract, replace the text with exactly this:
+
+   ```
+   C:\
+   ```
+
+5. Click **Extract**. You now have the folder `C:\muscriptor-studio-main`.
+
+Use that folder, not your Desktop or Documents. Those are often synced to OneDrive, and the install is too large for that. A very long folder path also makes the install fail.
+
+### Step 3: Install
+
+1. Open `C:\muscriptor-studio-main` and double-click **install.bat**.
+2. If Windows says "Windows protected your PC", click **More info**, then **Run anyway**.
+3. A black window opens. It asks:
+
+   ```
+   Models to download [medium tagger]:
+   ```
+
+   Press **Enter** to get the recommended ones. Or type the names you want from the table below, with spaces between them, and press **Enter**.
+4. It then asks for your token:
+
+   ```
+   Paste your token and press Enter (leave empty to skip):
+   ```
+
+   Right-click in the black window to paste the token from Step 1, then press **Enter**.
+5. Leave the window open while it downloads everything. You can do other things meanwhile. When it says `Done. Start MuScriptor Studio with start-studio.bat`, press any key to close it.
+
+| Type this | Model | Download | Graphics memory (GPU) | Good for |
+|---|---|---|---|---|
+| `small` | Small | 0.4 GB | 1.5 GB | Computers without an NVIDIA graphics card |
+| `medium` | Medium (recommended) | 1.2 GB | 3 GB | Most computers |
+| `large` | Large | 5.5 GB | 12 GB | Most accurate, needs a powerful graphics card |
+| `tagger` | Instrument detection | 0.3 GB | | The **Detect instruments** button |
+
+Not sure about your graphics card? Press **Ctrl + Shift + Esc**, click **Performance**, then **GPU**: its name is at the top right. Studio finds an NVIDIA card by itself. Without one it uses the processor, which is much slower, so choose `small`.
+
+### Step 4: Start Studio
+
+Double-click **start-studio.bat** in the same folder. Your browser opens Studio by itself. The first start can take a minute.
+
+Keep the black window open while you use Studio. Closing it stops Studio.
+
+## If something goes wrong
+
+Most problems are fixed by running **install.bat** again: it skips what's already done.
+
+| You see | What to do |
+|---|---|
+| `Install stopped while ...` | Check your internet connection, then double-click install.bat again. |
+| `MuseScore could not be unpacked` | The folder path is too long. Move the folder to `C:\` as in Step 2, and run install.bat again. |
+| `not allowed yet. Accept its licence at ...` | Open the link it shows, accept the terms as in Step 1, and run install.bat again. |
+| `Some downloads are unfinished` | Fix what's listed above that line, and run install.bat again. |
+| `No models are installed yet` (in the browser) | Run install.bat and choose at least one model. |
+| `Another MuScriptor server is using port 8222` | Close the other black window, then start Studio again. |
+| `The MuScriptor server isn't responding` (in the browser) | Double-click start-studio.bat, and keep its window open. |
+
+## Moving to another computer
+
+1. Do Step 2 on the new computer, then Step 3, and type `none` when it asks for models.
+2. Copy the `models` folder from the old computer into the new `C:\muscriptor-studio-main`, replacing what's there.
+3. To bring your songs too, copy `studio\data` the same way.
+
+## Updating
+
+Download the new ZIP as in Step 2, and extract it to a new folder. Copy `models` and `studio\data` into it from the old folder, and run install.bat there. Then you can delete the old folder.
+
+## Uninstalling
+
+Delete the folder. That removes everything: Studio, its Python, MuseScore, the models and your songs.
+
+## Where things are kept
+
+Everything stays in this one folder. Nothing is added to the Windows app list or to Program Files.
+
+| Folder | What's in it |
+|---|---|
+| `.tools` | The tools Studio needs, including MuseScore and your Hugging Face login |
+| `.venv` | Python's packages |
+| `models` | The models |
+| `studio\data` | Your songs |
+
+If MuseScore 4 was already installed on your computer, Studio uses that copy and leaves it as it is.
+
+## Licences
+
+The models are [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. The code is MIT licensed, and MuScriptor is by Kyutai and Mirelo.
+
+## For developers: manual install
+
+Everything install.bat does, by hand. Open the folder in File Explorer, click the address bar, type `cmd` and press Enter. These commands are for Command Prompt, not PowerShell.
 
 ```bat
 git clone https://github.com/FartyPants/muscriptor-studio C:\MuScriptor
@@ -48,39 +158,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install\uv.ps1
 
 Without an NVIDIA GPU, use `--torch-backend=cpu`. Don't use `uv sync`: it replaces the GPU build of PyTorch with the CPU one.
 
-**MuseScore** draws the Score tab and the PDFs. Either unpack it into this folder:
+MuseScore draws the Score tab and the PDFs. Unpack it into this folder, or install it from [musescore.org](https://musescore.org/en/download). Everything else works without it.
 
 ```bat
 powershell -NoProfile -ExecutionPolicy Bypass -File install\musescore.ps1 -Force
 ```
 
-or install it the usual way from [musescore.org](https://musescore.org/en/download). Studio finds either one, and everything else works without it.
-
-**Models:** download them as described next, then start Studio with `start-studio.bat`.
-
-## Models
-
-The models aren't in this repository. Their licence is [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. Open each model's page and accept the licence first.
-
-| Model | Page | Download | Parameters | GPU memory | Good for |
-|---|---|---|---|---|---|
-| Small | [muscriptor-small](https://huggingface.co/MuScriptor/muscriptor-small) | 0.4 GB | 100M | 1.5 GB | Computers without a GPU |
-| Medium (recommended) | [muscriptor-medium](https://huggingface.co/MuScriptor/muscriptor-medium) | 1.2 GB | 300M | 3 GB | CPU or GPU |
-| Large | [muscriptor-large](https://huggingface.co/MuScriptor/muscriptor-large) | 5.5 GB | 1.4B | 12 GB | GPU, most accurate |
-| Instrument detection | [ast-finetuned-audioset](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) | 0.3 GB | | | The Detect instruments button |
-
-You need at least one transcription model.
-
-**With the script,** from Command Prompt in this folder (`huggingface` will ask you to log in if needed):
+Download the models. It asks you to log in to Hugging Face if needed. Name any of `small`, `medium`, `large` and `tagger`:
 
 ```bat
 call .\env.bat home
 .venv\Scripts\python.exe -m studio.install_models medium tagger
 ```
 
-Name any of `small`, `medium`, `large` and `tagger`. It also fetches the soundfonts and the beat tracker.
-
-**By hand,** download these files from each model's *Files and versions* tab and put them here:
+Or download the files by hand from each model's *Files and versions* tab:
 
 | Model | File on its page | Goes to |
 |---|---|---|
@@ -88,30 +179,13 @@ Name any of `small`, `medium`, `large` and `tagger`. It also fetches the soundfo
 | Medium | `model.safetensors`, `config.json` | `models\medium\` |
 | Large | `model.safetensors` | `models\muscriptor-large.safetensors` (renamed) |
 | Large | `config.json` | `models\config.json` |
-| Instrument detection | `model.safetensors`, `config.json`, `preprocessor_config.json` | `models\tagger\` |
+| [Instrument detection](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) | `model.safetensors`, `config.json`, `preprocessor_config.json` | `models\tagger\` |
 
-Studio only offers the models it finds. The soundfonts and the beat tracker download into `models\` the first time they're needed.
-
-## Moving to another computer
-
-Install on the new computer the same way, choosing no models with `.\install.bat none`, then copy `models\` across. Copy `studio\data\` too if you want your transcriptions.
-
-## What stays in the folder
-
-| Where | What |
-|---|---|
-| `.tools\` | uv, Python, MuseScore, your Hugging Face login, and MuseScore's settings and logs |
-| `.venv\` | Python packages |
-| `models\` | Models, soundfonts, beat tracker |
-| `studio\data\` | Your transcriptions |
-
-Nothing is added to the Windows app list or to Program Files, and deleting the folder removes it all. If MuseScore was already installed, Studio uses that copy instead, and it's left as it is.
-
-If you change the web code, rebuild it (`npm run build` in `studio\web`) and commit `studio\web_dist`, since the repository ships the built pages.
+The soundfonts and the beat tracker download into `models\` the first time they're needed. After changing the web code, run `npm run build` in `studio\web` and commit `studio\web_dist`, because the repository ships the built pages.
 
 ---
 
-The rest of this page is MuScriptor's own documentation. The code is MIT licensed, by Kyutai and Mirelo; the model weights are CC BY-NC 4.0.
+The rest of this page is MuScriptor's own documentation.
 
 <p align="center">
   <img src="web/logo_muscriptor_final.png" alt="MuScriptor logo" width="300">

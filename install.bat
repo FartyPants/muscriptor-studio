@@ -12,6 +12,35 @@ call "%~dp0env.bat"
 set "UV=%MUSCRIPTOR_ROOT%\.tools\uv\uv.exe"
 set "PY=%MUSCRIPTOR_ROOT%\.venv\Scripts\python.exe"
 
+rem Asked first, so the long downloads can then run with nobody watching.
+set "MODELS=%*"
+if not "%MODELS%"=="" goto have_models
+echo.
+echo Which models do you want?
+echo   small    fastest, for computers without an NVIDIA graphics card
+echo   medium   recommended, needs 3 GB of graphics memory
+echo   large    most accurate, needs 12 GB of graphics memory
+echo   tagger   for the Detect instruments button
+echo Press Enter for the recommended ones, or type names with spaces between them.
+echo Type none to skip this, if you will copy the models from another computer.
+echo.
+set /p "MODELS=Models to download [medium tagger]: "
+if "%MODELS%"=="" set "MODELS=medium tagger"
+
+if exist "%HF_TOKEN_PATH%" goto have_models
+echo %MODELS%| findstr /i "small medium large" >nul
+if errorlevel 1 goto have_models
+echo.
+echo These models need the Hugging Face token from Step 1 of the README.
+echo To paste it here, click the right mouse button.
+echo.
+set "TOKEN="
+set /p "TOKEN=Paste your token and press Enter (leave empty to skip): "
+if "%TOKEN%"=="" goto have_models
+if not exist "%MUSCRIPTOR_ROOT%\.tools" mkdir "%MUSCRIPTOR_ROOT%\.tools"
+>"%HF_TOKEN_PATH%" echo %TOKEN%
+:have_models
+
 echo.
 echo [1/6] uv, the tool that installs Python and the packages
 set "STEP=downloading uv"
@@ -55,18 +84,6 @@ if errorlevel 1 goto failed
 
 echo.
 echo [6/6] Models
-set "MODELS=%*"
-if not "%MODELS%"=="" goto have_models
-echo Choose from: small medium large tagger
-echo   small    fastest, for computers without a GPU, about 1.5 GB of GPU memory
-echo   medium   recommended, about 3 GB of GPU memory
-echo   large    most accurate, needs 12 GB of GPU memory
-echo   tagger   listens for which instruments play, for Detect instruments
-echo The three transcription models need a free Hugging Face account: accept each
-echo model's licence on its page first. Links are in the README.
-set /p "MODELS=Models to download [medium tagger]: "
-if "%MODELS%"=="" set "MODELS=medium tagger"
-:have_models
 rem Python gets the project's home folder, so nothing it runs writes to the real one.
 call "%~dp0env.bat" home
 if /i "%MODELS%"=="none" (
