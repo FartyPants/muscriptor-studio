@@ -74,7 +74,20 @@ def test_random_groups_are_playable(tuning):
         strings = [f.string for f in group if f.string is not None]
         assert strings, "every group sounds at least one note"
         assert len(strings) == len(set(strings))
+        fretted = [f.fret for f in group if f.string is not None and f.fret > 0]
+        assert not fretted or max(fretted) - min(fretted) <= 3
         for f in group:
             if f.string is not None:
                 assert 0 <= f.fret <= MAX_FRET
                 assert TUNINGS[tuning][f.string - 1] + capo + f.fret == f.pitch
+
+
+def test_a_chord_no_hand_can_hold_loses_inner_notes():
+    # B/F# as transcribed: B2 F#3 A#3 B3 D#4 F#4 has no four-fret fingering.
+    result = fret_groups([[47, 54, 58, 59, 63, 66]], "guitar")
+    played = [f for f in result.groups[0] if f.string is not None]
+    fretted = [f.fret for f in played if f.fret > 0]
+    assert max(fretted) - min(fretted) <= 3
+    assert {47, 66} <= {f.pitch for f in played}
+    assert result.dropped == 6 - len(played) > 0
+

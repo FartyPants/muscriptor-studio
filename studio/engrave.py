@@ -30,6 +30,7 @@ from muscriptor.utils.sheets import (
     import_options,
 )
 from studio.analysis import Key, detect_chords, detect_key
+from studio.tab import Fretboard, add_tab_staff
 
 # Inches.
 PAGE_SIZES = {"a4": (8.27, 11.69), "letter": (8.5, 11.0)}
@@ -258,8 +259,14 @@ def keep_first_tempo(root: ET.Element) -> int:
     return removed
 
 
-def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: bool) -> dict[str, Any]:
-    """Set the key and add chords in `path`. Returns what was used."""
+def prepare_musicxml(
+    path: Path,
+    midi_path: Path,
+    key: Key | None,
+    with_chords: bool,
+    fretboard: Fretboard | None = None,
+) -> dict[str, Any]:
+    """Set the key, add chords and any tab staff in `path`. Returns what was used."""
     notes, beats_per_bar = notes_in_beats(midi_path)
     resolved = key or detect_key(notes, {"bpm": 60.0, "beats_per_bar": beats_per_bar})
     tree = ET.parse(path)
@@ -271,8 +278,16 @@ def prepare_musicxml(path: Path, midi_path: Path, key: Key | None, with_chords: 
     keep_first_tempo(root)
     chords = score_chords(notes, beats_per_bar, resolved) if with_chords else []
     written = add_chords(root, chords) if chords else 0
+    tab = None
+    if fretboard is not None and fretboard.tab:
+        tab = add_tab_staff(root, fretboard.tab, fretboard.tuning, fretboard.capo)
     tree.write(path, encoding="utf-8", xml_declaration=True)
-    return {"key": resolved.label if resolved else None, "chords": written, "beats_per_bar": beats_per_bar}
+    return {
+        "key": resolved.label if resolved else None,
+        "chords": written,
+        "beats_per_bar": beats_per_bar,
+        "tab": tab,
+    }
 
 
 def set_page(mscx: Path, page: str) -> None:
@@ -294,7 +309,15 @@ def set_page(mscx: Path, page: str) -> None:
     mscx.write_text(text, encoding="utf-8")
 
 
-def _score_files(binary: str, midi_path: Path, work: Path, quantized: bool, key, with_chords: bool):
+def _score_files(
+    binary: str,
+    midi_path: Path,
+    work: Path,
+    quantized: bool,
+    key,
+    with_chords: bool,
+    fretboard: Fretboard | None = None,
+):
     options = work / "import.xml"
     # With a grid, the MIDI's bars are the roll's bars, so MuseScore's
     # human-performance mode must not guess its own meter. Without one, the bars
@@ -312,19 +335,24 @@ def _score_files(binary: str, midi_path: Path, work: Path, quantized: bool, key,
     if not musicxml.is_file():
         _fail("write MusicXML", proc)
     # Chords need bars that mean something.
-    info = prepare_musicxml(musicxml, midi_path, key, with_chords and quantized)
+    info = prepare_musicxml(musicxml, midi_path, key, with_chords and quantized, fretboard)
     return musicxml, info
 
 
 def write_musicxml(
-    midi_bytes: bytes, out: Path, quantized: bool, key: Key | None, with_chords: bool
+    midi_bytes: bytes,
+    out: Path,
+    quantized: bool,
+    key: Key | None,
+    with_chords: bool,
+    fretboard: Fretboard | None = None,
 ) -> dict[str, Any]:
     binary = find_musescore()
     with tempfile.TemporaryDirectory(prefix="studio-engrave-") as tmp:
         work = Path(tmp)
         midi_path = work / "score.mid"
         midi_path.write_bytes(midi_bytes)
-        musicxml, info = _score_files(binary, midi_path, work, quantized, key, with_chords)
+        musicxml, info = _score_files(binary, midi_path, work, quantized, key, with_chords, fretboard)
         shutil.copyfile(musicxml, out)
     return info
 

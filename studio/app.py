@@ -27,6 +27,7 @@ from muscriptor.utils.sheets import MuseScoreError, MuseScoreNotFoundError
 from muscriptor.utils.audio import _read_non_wav_file, _read_wav_file
 from studio.analysis import Key, analyze
 from studio.engrave import score_measures, write_musicxml, write_score
+from studio.tab import Fretboard
 from studio.instruments import scan_instruments
 from studio.models import (
     ModelBusyError,
@@ -149,6 +150,7 @@ class ScoreRequest(ExportRequest):
     key: ChosenKey | None = None
     chords: bool = True
     page: Literal["a4", "letter"] = "letter"
+    fretboard: Fretboard | None = None
 
 
 def read_audio(path: Path):
@@ -283,6 +285,7 @@ def create_studio_app(
                     body.beat_grid is not None,
                     body.key.as_key() if body.key else None,
                     body.chords,
+                    body.fretboard,
                 )
                 return out.read_bytes()
 
@@ -311,6 +314,7 @@ def create_studio_app(
                     body.beat_grid is not None,
                     body.key.as_key() if body.key else None,
                     body.chords,
+                    body.fretboard,
                 ) or {}
                 starts, end = score_measures(out)
                 xml = out.read_text(encoding="utf-8")
@@ -321,6 +325,7 @@ def create_studio_app(
                 "end": times[-1],
                 "key": info.get("key"),
                 "chords": info.get("chords", 0),
+                "tab": info.get("tab"),
             }
 
         try:

@@ -90,7 +90,7 @@ def _local_cost(frets: tuple[int, ...]) -> float:
 
 
 def _fingerings(
-    pitches: list[int], strings: tuple[int, ...], capo: int, max_span: int | None
+    pitches: list[int], strings: tuple[int, ...], capo: int, max_span: int
 ) -> list[tuple[tuple[int, int], ...]]:
     """Every way to play all of `pitches` at once, one string each."""
     options = [_choices(p, strings, capo) for p in pitches]
@@ -99,7 +99,7 @@ def _fingerings(
         used = [s for s, _ in combo]
         if len(set(used)) != len(used):
             continue
-        if max_span is not None and _span([f for _, f in combo]) > max_span:
+        if _span([f for _, f in combo]) > max_span:
             continue
         found.append(combo)
     found.sort(key=lambda c: _local_cost(tuple(f for _, f in c)))
@@ -109,15 +109,14 @@ def _fingerings(
 def _playable(pitches: list[int], strings: tuple[int, ...], capo: int):
     """Fingerings for `pitches`, and the pitches they cover.
 
-    Strict first (a four-fret hand). Failing that, any stretch. Failing that,
-    inner notes go, the second lowest first, until the rest can sound.
+    A hand spans four frets, so a chord that doesn't fit loses inner notes,
+    the second lowest first, until the rest can sound together.
     """
     kept = list(pitches)
     while kept:
-        for span in (MAX_SPAN, None):
-            found = _fingerings(kept, strings, capo, span)
-            if found:
-                return kept, found
+        found = _fingerings(kept, strings, capo, MAX_SPAN)
+        if found:
+            return kept, found
         if len(kept) <= 2:
             kept = kept[:-1]
         else:

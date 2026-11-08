@@ -37,7 +37,7 @@ class TestMusicXml:
     def test_returns_the_file_and_passes_the_choices_on(self, client, monkeypatch):
         seen = {}
 
-        def fake(midi, out, quantized, key, chords):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
             seen.update(midi=midi, quantized=quantized, key=key, chords=chords)
             Path(out).write_text("<score/>")
 
@@ -56,7 +56,7 @@ class TestMusicXml:
     def test_without_a_grid_nothing_is_quantized(self, client, monkeypatch):
         seen = {}
 
-        def fake(midi, out, quantized, key, chords):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
             seen["quantized"] = quantized
             Path(out).write_text("<score/>")
 
@@ -93,7 +93,7 @@ class TestQuantizing:
     def midi_for(self, client, monkeypatch, grid):
         seen = {}
 
-        def fake(midi, out, quantized, key, chords):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
             seen["midi"] = midi
             Path(out).write_text("<score/>")
 
@@ -116,7 +116,7 @@ class TestPdf:
     def test_returns_a_zip_of_everything(self, client, monkeypatch):
         seen = {}
 
-        def fake(midi, folder, quantized, key, chords, page):
+        def fake(midi, folder, quantized, key, chords, page, fretboard=None):
             seen["page"] = page
             paths = [folder / "score.mid", folder / "full_score.pdf"]
             for path in paths:
@@ -168,7 +168,7 @@ def measures_xml(count, beats=4):
 
 class TestView:
     def view(self, client, monkeypatch, json, count=3, beats=4):
-        def fake(midi, out, quantized, key, chords):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
             Path(out).write_text(measures_xml(count, beats))
             return {"key": "C major", "chords": 2}
 
@@ -213,7 +213,7 @@ class TestView:
     def test_leading_bars_are_never_trimmed(self, client, monkeypatch):
         seen = {}
 
-        def fake(midi, out, quantized, key, chords):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
             seen["midi"] = midi
             Path(out).write_text(measures_xml(3))
 
@@ -242,7 +242,7 @@ class TestView:
 
 class TestViewTiming:
     def view(self, client, monkeypatch, json):
-        def fake(midi, out, quantized, key, chords):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
             Path(out).write_text(measures_xml(4))
 
         monkeypatch.setattr("studio.app.write_musicxml", fake)
@@ -273,3 +273,35 @@ class TestViewTiming:
         notes = [{**NOTES[0], "start": 0.18 + 0.5 * i, "end": 0.6 + 0.5 * i} for i in range(8)]
         got = self.view(client, monkeypatch, {"notes": notes})
         assert got["measures"][:2] == [0, 2]
+
+
+class TestViewTab:
+    def test_the_choice_reaches_the_writer_and_the_report_comes_back(self, client, monkeypatch):
+        seen = {}
+
+        def fake(midi, out, quantized, key, chords, fretboard=None):
+            seen["fretboard"] = fretboard
+            Path(out).write_text(measures_xml(2, 4))
+            return {"key": None, "chords": 0, "tab": {"moved": 3, "dropped": 1}}
+
+        monkeypatch.setattr("studio.app.write_musicxml", fake)
+        choice = {"tuning": "ukulele", "capo": 2, "tab": "acoustic_guitar", "diagrams": False}
+        r = client.post("/studio/api/score/view", json=body(fretboard=choice))
+        assert r.status_code == 200
+        assert r.json()["tab"] == {"moved": 3, "dropped": 1}
+        assert seen["fretboard"].tuning == "ukulele" and seen["fretboard"].capo == 2
+
+    def test_a_wrong_tuning_or_capo_is_refused(self, client):
+        for choice in ({"tuning": "banjo"}, {"capo": 9}):
+            r = client.post("/studio/api/score/view", json=body(fretboard=choice))
+            assert r.status_code == 422
+
+    def test_without_a_choice_there_is_no_tab(self, client, monkeypatch):
+        def fake(midi, out, quantized, key, chords, fretboard=None):
+            assert fretboard is None
+            Path(out).write_text(measures_xml(2, 4))
+            return {"key": None, "chords": 0}
+
+        monkeypatch.setattr("studio.app.write_musicxml", fake)
+        assert client.post("/studio/api/score/view", json=body()).json()["tab"] is None
+
