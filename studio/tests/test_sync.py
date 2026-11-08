@@ -48,3 +48,16 @@ def test_what_is_not_known_about_the_audio_is_left_out():
     assert "audio" not in doc()
     assert doc(audio_filename="a.wav")["audio"] == {"filename": "a.wav"}
     assert doc(audio_duration=3.0)["audio"] == {"durationSeconds": 3.0}
+
+
+def test_anchors_strictly_increase():
+    anchors = doc(measures=(0, 2.5, 5.0), end=7.5)["anchors"]
+    quarters = [a["quarter"] for a in anchors]
+    seconds = [a["seconds"] for a in anchors]
+    assert all(b > a for a, b in zip(quarters, quarters[1:]))
+    assert all(b > a for a, b in zip(seconds, seconds[1:]))
+
+
+def test_nothing_is_anchored_at_or_past_the_end():
+    assert [a["quarter"] for a in doc(measures=(0, 4, 8), end=8.0)["anchors"]][-1] == 7.0
+

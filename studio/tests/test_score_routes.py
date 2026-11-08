@@ -402,3 +402,15 @@ class TestSync:
         assert sync["score"]["filename"] == "score.musicxml"
         assert sync["score"]["sha256"] == hashlib.sha256(archive.read("score.musicxml")).hexdigest()
 
+    def test_the_hash_is_of_the_bytes_written(self, client, monkeypatch):
+        written = "<?xml version='1.0'?>\r\n<!-- Kočky -->\r\n".encode("utf-8") + measures_xml(2, 4).encode("utf-8")
+
+        def fake(midi, out, quantized, key, chords, fretboard=None):
+            Path(out).write_bytes(written)
+            return {"key": None, "chords": 0}
+
+        monkeypatch.setattr("studio.app.write_musicxml", fake)
+        out = client.post("/studio/api/score/sync", json=body()).json()
+        assert out["sync"]["score"]["sha256"] == hashlib.sha256(written).hexdigest()
+        assert out["musicxml"].encode("utf-8") == written
+

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProjectDoc } from "./api";
 import {
   audibleNotes,
+  engravingKey,
   fretboardRequest,
   isStaleBuild,
   measureAt,
@@ -240,6 +241,20 @@ describe("timeAbove", () => {
   it("ignores clicks too far above, or beside, every measure", () => {
     expect(timeAbove(view, boxes, 200, -80, 50)).toBeNull();
     expect(timeAbove(view, boxes, 600, -10, 50)).toBeNull();
+  });
+});
+
+describe("engravingKey", () => {
+  const body = { notes: [1], page: "a4", options: { quantize: true, beat_scale: 1 } };
+
+  it("ignores what can't change the MusicXML", () => {
+    const other = { ...body, page: "letter", options: { quantize: false, beat_scale: 1 } };
+    expect(engravingKey(other)).toBe(engravingKey(body));
+  });
+
+  it("changes with anything that can", () => {
+    expect(engravingKey({ ...body, options: { quantize: true, beat_scale: 2 } })).not.toBe(engravingKey(body));
+    expect(engravingKey({ ...body, notes: [2] } as typeof body)).not.toBe(engravingKey(body));
   });
 });
 

@@ -5,7 +5,7 @@ import { api, type ChosenKey, type ProjectDoc, type ProjectNote, type ScoreExpor
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
 import { displayName } from "../instruments";
 import { renderAudio } from "../renderAudio";
-import { fretboardRequest } from "../score";
+import { engravingKey, fretboardRequest } from "../score";
 import { METERS } from "../pianoroll";
 import { Button, Checkbox, Segmented, Select, SidePanel } from "./ui";
 
@@ -148,7 +148,7 @@ export function ExportPanel(props: {
   // (MuseScore writes the date in) and the sync data holds the MusicXML's hash.
   const scoreExport = () => {
     const body = scoreBody();
-    const key = JSON.stringify(body);
+    const key = engravingKey(body);
     if (engraved.current?.key !== key) {
       const result = api.scoreSync(body);
       engraved.current = { key, result };

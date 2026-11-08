@@ -241,3 +241,14 @@ export function timeAbove(
   }
   return nearest ? timeAt(view, boxes, x, nearest.top) : null;
 }
+
+/**
+ * What makes one export's MusicXML differ from another's. The page size only
+ * affects PDFs, and the server decides quantizing for sheet music itself.
+ */
+export function engravingKey(body: { page?: unknown; options: Record<string, unknown> }): string {
+  const { page: _page, options, ...rest } = body;
+  const { quantize: _quantize, ...kept } = options;
+  return JSON.stringify({ ...rest, options: kept });
+}
+
