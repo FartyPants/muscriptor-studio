@@ -3,24 +3,29 @@ import clsx from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayName, scoreInstrument } from "../instruments";
 
-/** Type to find an instrument, and pick from the list. Chosen ones become chips. */
-export function InstrumentPicker(props: {
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
-}) {
-  const { selected, onChange } = props;
+/** Every instrument the model knows, in its own order. Empty until it arrives. */
+export function useInstrumentList(): string[] {
   const [available, setAvailable] = useState<string[]>([]);
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
-  const root = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     fetch("/instruments")
       .then((r) => r.json())
       .then((data) => setAvailable(data.instruments ?? []))
       .catch(() => {});
   }, []);
+  return available;
+}
+
+/** Type to find an instrument, and pick from the list. Chosen ones become chips. */
+export function InstrumentPicker(props: {
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const { selected, onChange } = props;
+  const available = useInstrumentList();
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onPress = (e: MouseEvent) => {

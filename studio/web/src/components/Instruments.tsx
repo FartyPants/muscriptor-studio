@@ -1,9 +1,11 @@
 import clsx from "clsx";
-import { Volume2, VolumeX } from "lucide-react";
-import { useMemo } from "react";
+import { ArrowLeftRight, Volume2, VolumeX } from "lucide-react";
+import { useMemo, useState } from "react";
 import type { ProjectNote } from "../api";
+import { canChangeInstrument } from "../editor/changeInstrument";
 import { displayName, label } from "../instruments";
 import { instrumentColor } from "../pianoroll";
+import { InstrumentSwap } from "./InstrumentSwap";
 import { IconButton } from "./ui";
 
 const BINS = 80;
@@ -42,9 +44,13 @@ export function InstrumentPanel(props: {
   onMute: (name: string) => void;
   onSolo: (name: string) => void;
   onHover: (name: string | null) => void;
+  /** Give a track's notes to another instrument, or null while that can't happen. */
+  onChangeInstrument: ((from: string, to: string) => void) | null;
 }) {
   const { notes, names, muted, solo, active, onActivate, onMute, onSolo, onHover } = props;
+  const { onChangeInstrument } = props;
   const rows = useMemo(() => instrumentRows(notes, names), [notes, names]);
+  const [changing, setChanging] = useState<string | null>(null);
   return (
     <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel">
       <h2 className="px-3 pt-3 pb-1 text-[13px] font-semibold text-content">Instruments</h2>
@@ -76,6 +82,20 @@ export function InstrumentPanel(props: {
                   </div>
                   {count > 0 && <div className="tabular text-xs text-muted">{count.toLocaleString()} notes</div>}
                 </div>
+                {onChangeInstrument && canChangeInstrument(name) && (
+                  <IconButton
+                    label={`Change ${label(name)} to another instrument`}
+                    pressed={changing === name}
+                    data-swap-toggle=""
+                    className="!size-7"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setChanging((was) => (was === name ? null : name));
+                    }}
+                  >
+                    <ArrowLeftRight size={14} />
+                  </IconButton>
+                )}
                 <IconButton
                   label={`Solo ${label(name)}`}
                   pressed={solo.has(name)}
@@ -108,6 +128,17 @@ export function InstrumentPanel(props: {
                 >
                   <polygon points={points} fill={color} fillOpacity={silent ? 0.1 : 0.28} />
                 </svg>
+              )}
+              {changing === name && onChangeInstrument && (
+                <InstrumentSwap
+                  from={name}
+                  tracks={names}
+                  onPick={(to) => {
+                    setChanging(null);
+                    onChangeInstrument(name, to);
+                  }}
+                  onClose={() => setChanging(null)}
+                />
               )}
             </div>
           );

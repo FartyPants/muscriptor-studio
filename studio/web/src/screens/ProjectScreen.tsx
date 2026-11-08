@@ -12,6 +12,7 @@ import { EditControls, RollToolbar } from "../components/Toolbar";
 import { TopBar } from "../components/TopBar";
 import { TranscribeBar } from "../components/TranscribeBar";
 import { Transport, type ProjectView } from "../components/Transport";
+import { changeInstrument, movedFlag } from "../editor/changeInstrument";
 import { useEditorKeys } from "../hooks/useEditorKeys";
 import { gridWithMeter, useProject, type Range } from "../hooks/useProject";
 import { useRollFrame } from "../hooks/useRollFrame";
@@ -183,6 +184,20 @@ export function ProjectScreen({
     void project.retranscribe(target, request);
   };
 
+  // A track becomes another instrument: its sound, colour and exported name.
+  const changeTrack = (from: string, to: string) => {
+    const store = project.store.current;
+    if (!store) return;
+    const merged = names.includes(to);
+    store.apply(changeInstrument(store.notes, from, to));
+    setMuted((m) => movedFlag(m, from, to, merged));
+    setSolo((s) => movedFlag(s, from, to, merged));
+    if (active === from) {
+      setActive(to);
+      editorRef.current?.setActive(to);
+    }
+  };
+
   const rangeNotes = range
     ? notes.filter((n) => {
         const t = n.start - (doc?.beat_grid?.onset_delay ?? 0);
@@ -342,6 +357,7 @@ export function ProjectScreen({
           onMute={(name) => setMuted((m) => toggled(m, name))}
           onSolo={(name) => setSolo((s) => toggled(s, name))}
           onHover={(name) => rollRef.current?.setHighlightedInstrument(name)}
+          onChangeInstrument={phase === "ready" && !working ? changeTrack : null}
         />
       </div>
 
