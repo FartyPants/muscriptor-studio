@@ -21,7 +21,7 @@ Turn a recording into notes you can edit, hear and export. Studio is a local web
 ## Install with install.bat
 
 ```bat
-git clone <repository-url> C:\MuScriptor
+git clone https://github.com/FartyPants/muscriptor-studio C:\MuScriptor
 cd /d C:\MuScriptor
 .\install.bat
 ```
@@ -37,7 +37,7 @@ Before the models download, accept each model's licence on its page (see [Models
 The same steps by hand, in a Command Prompt (`cmd`), not PowerShell:
 
 ```bat
-git clone <repository-url> C:\MuScriptor
+git clone https://github.com/FartyPants/muscriptor-studio C:\MuScriptor
 cd /d C:\MuScriptor
 call .\env.bat
 powershell -NoProfile -ExecutionPolicy Bypass -File install\uv.ps1
