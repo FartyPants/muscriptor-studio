@@ -8,7 +8,7 @@ Turn a recording into notes you can edit, hear and export. Drop in an audio file
 |---|---|
 | ![The Score tab, with chord names and a playhead](media/ddimage41.jpg) | ![Editing one instrument's notes on the roll](media/ddimage42.jpg) |
 
-**Tested on Windows 10.** Windows only for now.
+**Tested on Windows 10.** Windows. Should work on MAC and Linux, but that was not tested.
 
 ## How is this different from MuScriptor?
 
