@@ -62,6 +62,8 @@ export type ProjectDoc = {
   key?: ChosenKey | null;
   /** Beats per bar set by hand. Unset or null follows detection. */
   meter?: number | null;
+  /** Seconds of audio, when its length could be read. */
+  duration?: number | null;
   /** Tab and chord diagram choices for the score. Unset means none. */
   fretboard?: Fretboard | null;
   audio_name: string;
@@ -119,6 +121,8 @@ export const NO_FRETBOARD: Fretboard = { tuning: "guitar", capo: 0, tab: null, d
 /** What fitting the tab changed: notes moved by octaves, chord notes left out. */
 export type TabReport = { moved: number; dropped: number };
 
+export type ScoreExport = { musicxml: string; sync: Record<string, unknown> };
+
 export type ScoreView = {
   musicxml: string;
   /** Where each measure starts. */
@@ -175,8 +179,9 @@ export const api = {
 
   scoreView: (body: unknown) =>
     fetch("/studio/api/score/view", send(body, "POST")).then(json<ScoreView>),
-  scoreMusicXml: (body: unknown) =>
-    fetch("/studio/api/score/musicxml", send(body, "POST")).then(blob),
+  /** One engraving's MusicXML and its sync data, so the two always match. */
+  scoreSync: (body: unknown) =>
+    fetch("/studio/api/score/sync", send(body, "POST")).then(json<ScoreExport>),
 
   scorePdf: (body: unknown) => fetch("/studio/api/score/pdf", send(body, "POST")).then(blob),
 

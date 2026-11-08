@@ -1,7 +1,7 @@
 import { unzipSync } from "fflate";
 import { Download, FileMusic, FileText, LoaderCircle, Music4 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
+import { api, type ChosenKey, type ProjectDoc, type ProjectNote, type ScoreExport } from "../api";
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
 import { displayName } from "../instruments";
 import { renderAudio } from "../renderAudio";
@@ -95,6 +95,7 @@ export function ExportPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [sheets, setSheets] = useState<SheetFile[] | null>(null);
   const archive = useRef<Blob | null>(null);
+  const engraved = useRef<{ key: string; result: Promise<ScoreExport> } | null>(null);
   const ready = useRef<HTMLParagraphElement>(null);
 
   const selected = useMemo(
@@ -140,7 +141,24 @@ export function ExportPanel(props: {
     chords,
     page,
     fretboard: fretboardRequest(doc.fretboard),
+    sync: { score_filename: `${stem}.musicxml`, audio_filename: doc.audio_name, audio_duration: doc.duration ?? null },
   });
+
+  // MusicXML and Sync data share one engraving, because a second one can differ
+  // (MuseScore writes the date in) and the sync data holds the MusicXML's hash.
+  const scoreExport = () => {
+    const body = scoreBody();
+    const key = JSON.stringify(body);
+    if (engraved.current?.key !== key) {
+      const result = api.scoreSync(body);
+      engraved.current = { key, result };
+      // A failure isn't kept: the next press tries again.
+      result.catch(() => {
+        if (engraved.current?.result === result) engraved.current = null;
+      });
+    }
+    return engraved.current!.result;
+  };
 
   // Prepared PDFs show the options they were made with, so they end with them.
   useEffect(() => {
@@ -281,7 +299,26 @@ export function ExportPanel(props: {
             busy={busy === "xml"}
             disabled={anyBusy || noneOn}
             onClick={() =>
-              run("xml", async () => saveBlob(await api.scoreMusicXml(scoreBody()), `${stem}.musicxml`))
+              run("xml", async () =>
+                saveBlob(
+                  new Blob([(await scoreExport()).musicxml], { type: "application/vnd.recordare.musicxml+xml" }),
+                  `${stem}.musicxml`,
+                ),
+              )
+            }
+          />
+          <FormatButton
+            title="Sync data"
+            extension=".sync.json"
+            busy={busy === "sync"}
+            disabled={anyBusy || noneOn}
+            onClick={() =>
+              run("sync", async () =>
+                saveBlob(
+                  new Blob([JSON.stringify((await scoreExport()).sync, null, 2)], { type: "application/json" }),
+                  `${stem}.sync.json`,
+                ),
+              )
             }
           />
           <FormatButton
