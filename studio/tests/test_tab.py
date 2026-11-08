@@ -106,10 +106,17 @@ def test_the_part_gets_two_staves_and_the_tuning():
     assert clefs[1].findtext("sign") == "TAB"
     details = attributes.find("staff-details")
     assert details.findtext("staff-lines") == "4"
-    # The bottom line is string 4, the ukulele's high G.
-    lines = {t.get("line"): (t.findtext("tuning-step"), t.findtext("tuning-octave")) for t in details.findall("staff-tuning")}
-    assert lines == {"1": ("G", "4"), "2": ("C", "4"), "3": ("E", "4"), "4": ("A", "4")}
-    assert details.findtext("capo") == "2"
+    # The bottom line is string 4, the ukulele's high G. The capo raises
+    # every string two frets: G C E A becomes A D F# B.
+    lines = {
+        t.get("line"): (t.findtext("tuning-step"), t.findtext("tuning-alter"), t.findtext("tuning-octave"))
+        for t in details.findall("staff-tuning")
+    }
+    assert lines == {"1": ("A", None, "4"), "2": ("D", None, "4"), "3": ("F", "1", "4"), "4": ("B", None, "4")}
+    # Not <capo>: MuseScore would re-fret the staff itself.
+    assert details.find("capo") is None
+    mark = root.find("part/measure/direction/direction-type/words")
+    assert mark is not None and mark.text == "Capo 2"
     tags = [c.tag for c in attributes]
     assert tags.index("time") < tags.index("staves") < tags.index("clef")
 
@@ -190,3 +197,19 @@ def test_find_part_by_track_name():
     root = two_voices()
     assert find_part(root, "acoustic_guitar") is root.find("part")
     assert find_part(root, "electric_guitar") is None
+
+
+def test_tabbed_copy_names_the_part(tmp_path):
+    from studio.engrave import tabbed_copy
+    from studio.tab import Fretboard
+
+    root = two_voices()
+    source = tmp_path / "plain.musicxml"
+    ET.ElementTree(root).write(source, encoding="utf-8")
+    out = tmp_path / "tabbed.musicxml"
+    assert tabbed_copy(source, out, None) is None and not out.exists()
+    assert tabbed_copy(source, out, Fretboard(tab="violin")) is None and not out.exists()
+    assert tabbed_copy(source, out, Fretboard(tab="acoustic_guitar")) == 0
+    assert "<sign>TAB</sign>" in out.read_text(encoding="utf-8")
+    assert "<sign>TAB</sign>" not in source.read_text(encoding="utf-8")
+

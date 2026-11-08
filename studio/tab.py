@@ -97,17 +97,26 @@ def _tuning_details(tuning: str, capo: int) -> ET.Element:
     strings = TUNINGS[tuning]
     details = ET.Element("staff-details", number="2")
     ET.SubElement(details, "staff-lines").text = str(len(strings))
+    # A capo is written as strings tuned up by its frets, not as <capo>:
+    # MuseScore re-frets every note of a staff with <capo> itself, ignoring
+    # the strings chosen here. A text mark tells the player instead.
     # Line 1 is the bottom line, which carries the highest-numbered string.
-    for line, open_pitch in enumerate(reversed(strings), start=1):
+    for line, open_pitch in enumerate((p + capo for p in reversed(strings)), start=1):
         step, alter = SHARP_NAMES[open_pitch % 12]
         tuning_el = ET.SubElement(details, "staff-tuning", line=str(line))
         ET.SubElement(tuning_el, "tuning-step").text = step
         if alter:
             ET.SubElement(tuning_el, "tuning-alter").text = str(alter)
         ET.SubElement(tuning_el, "tuning-octave").text = str(open_pitch // 12 - 1)
-    if capo:
-        ET.SubElement(details, "capo").text = str(capo)
     return details
+
+
+def _capo_mark(capo: int) -> ET.Element:
+    direction = ET.Element("direction", placement="above")
+    words = ET.SubElement(ET.SubElement(direction, "direction-type"), "words")
+    words.text = f"Capo {capo}"
+    ET.SubElement(direction, "staff").text = "2"
+    return direction
 
 
 def _add_tab_attributes(measure: ET.Element, tuning: str, capo: int) -> None:
@@ -194,6 +203,9 @@ def add_tab_staff(root: ET.Element, instrument: str, tuning: str, capo: int) -> 
             spots[id(note)] = (fret.pitch, fret.string, fret.fret) if fret.string else None
 
     _add_tab_attributes(measures[0], tuning, capo)
+    if capo:
+        first = measures[0]
+        first.insert(list(first).index(first.find("attributes")) + 1, _capo_mark(capo))
     held: dict[int, tuple[int, int, int]] = {}  # written pitch -> where its tie started
     for index, measure in enumerate(measures):
         elements = list(measure)

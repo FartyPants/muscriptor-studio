@@ -129,6 +129,20 @@ class TestPdf:
         assert seen["page"] == "a4"
         assert zipfile.ZipFile(io.BytesIO(r.content)).namelist() == ["score.mid", "full_score.pdf"]
 
+    def test_the_fretboard_choice_reaches_the_writer(self, client, monkeypatch):
+        seen = {}
+
+        def fake(midi, folder, quantized, key, chords, page, fretboard=None):
+            seen["fretboard"] = fretboard
+            path = folder / "full_score.pdf"
+            path.write_bytes(b"x")
+            return [path]
+
+        monkeypatch.setattr("studio.app.write_score", fake)
+        choice = {"tuning": "drop_d", "capo": 0, "tab": "acoustic_guitar", "diagrams": False}
+        assert client.post("/studio/api/score/pdf", json=body(fretboard=choice)).status_code == 200
+        assert seen["fretboard"].tab == "acoustic_guitar" and seen["fretboard"].tuning == "drop_d"
+
     def test_an_unknown_page_is_refused(self, client):
         assert client.post("/studio/api/score/pdf", json=body(page="a3")).status_code == 422
 

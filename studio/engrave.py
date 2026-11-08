@@ -24,13 +24,11 @@ from muscriptor.utils.sheets import (
     _fail,
     _run,
     _write_part_pdfs,
-    convert_to_tab_staves,
     find_musescore,
-    fretted_parts,
     import_options,
 )
 from studio.analysis import Key, detect_chords, detect_key
-from studio.tab import Fretboard, add_tab_staff
+from studio.tab import Fretboard, add_tab_staff, find_part
 
 # Inches.
 PAGE_SIZES = {"a4": (8.27, 11.69), "letter": (8.5, 11.0)}
@@ -290,6 +288,23 @@ def prepare_musicxml(
     }
 
 
+def tabbed_copy(musicxml: Path, out: Path, fretboard: Fretboard | None) -> int | None:
+    """Write `musicxml` with the chosen track's tab staff to `out`.
+
+    Returns the index of the part that got it, or None, writing nothing, when
+    no tab was chosen or no part plays its track.
+    """
+    if fretboard is None or not fretboard.tab:
+        return None
+    tree = ET.parse(musicxml)
+    root = tree.getroot()
+    if add_tab_staff(root, fretboard.tab, fretboard.tuning, fretboard.capo) is None:
+        return None
+    index = root.findall("part").index(find_part(root, fretboard.tab))
+    tree.write(out, encoding="utf-8", xml_declaration=True)
+    return index
+
+
 def set_page(mscx: Path, page: str) -> None:
     """Set the page size in a MuseScore file's style."""
     width, height = PAGE_SIZES[page]
@@ -364,8 +379,15 @@ def write_score(
     key: Key | None,
     with_chords: bool,
     page: str,
+    fretboard: Fretboard | None = None,
 ) -> list[Path]:
-    """Every file for the score: MIDI, MusicXML, full score, parts and tablature."""
+    """Every file for the score: MIDI, MusicXML, full score, parts and tablature.
+
+    Tablature is for the one track the fretboard choice names. The full score
+    and the MusicXML carry its tab staff, as the Score tab shows them; each
+    instrument's own PDF is notation only, and that track also gets a
+    `_tab` PDF with both.
+    """
     binary = find_musescore()
     out_dir.mkdir(parents=True, exist_ok=True)
     midi_path = out_dir / "score.mid"
@@ -374,27 +396,30 @@ def write_score(
     with tempfile.TemporaryDirectory(prefix="studio-engrave-") as tmp:
         work = Path(tmp)
         musicxml, _ = _score_files(binary, midi_path, work, quantized, key, with_chords)
+        tabbed = work / "tabbed.musicxml"
+        tab_part = tabbed_copy(musicxml, tabbed, fretboard)
+        shown = tabbed if tab_part is not None else musicxml
         kept = out_dir / "score.musicxml"
-        shutil.copyfile(musicxml, kept)
+        shutil.copyfile(shown, kept)
         written.append(kept)
 
-        mscx = work / "score.mscx"
-        proc = _run(binary, ["-o", str(mscx), str(musicxml)])
-        if not mscx.is_file():
-            _fail("read the MusicXML back", proc)
-        set_page(mscx, page)
+        def read_back(source: Path, name: str) -> Path:
+            mscx = work / name
+            proc = _run(binary, ["-o", str(mscx), str(source)])
+            if not mscx.is_file():
+                _fail("read the MusicXML back", proc)
+            set_page(mscx, page)
+            return mscx
+
+        mscx = read_back(musicxml, "score.mscx")
+        tab_mscx = read_back(tabbed, "tabbed.mscx") if tab_part is not None else None
 
         full_score = out_dir / "full_score.pdf"
-        proc = _run(binary, ["-o", str(full_score), str(mscx)])
+        proc = _run(binary, ["-o", str(full_score), str(tab_mscx or mscx)])
         if not full_score.is_file():
             _fail("render the full score", proc)
         written.append(full_score)
         written.extend(_write_part_pdfs(binary, mscx, out_dir))
-
-        fretted = fretted_parts(mscx)
-        if fretted:
-            tab = work / "tab.mscx"
-            shutil.copyfile(mscx, tab)
-            convert_to_tab_staves(tab)
-            written.extend(_write_part_pdfs(binary, tab, out_dir, suffix="_tab", only=set(fretted)))
+        if tab_mscx is not None:
+            written.extend(_write_part_pdfs(binary, tab_mscx, out_dir, suffix="_tab", only={tab_part}))
     return written

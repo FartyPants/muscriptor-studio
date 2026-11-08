@@ -348,6 +348,7 @@ def create_studio_app(
                     body.key.as_key() if body.key else None,
                     body.chords,
                     body.page,
+                    body.fretboard,
                 )
                 buffer = io.BytesIO()
                 with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:

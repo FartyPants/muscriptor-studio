@@ -5,6 +5,7 @@ import { api, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
 import { exportMidi, saveBlob, type NoteCleanup, type TimingOverrides } from "../export";
 import { displayName } from "../instruments";
 import { renderAudio } from "../renderAudio";
+import { fretboardRequest } from "../score";
 import { METERS } from "../pianoroll";
 import { Button, Checkbox, Segmented, Select, SidePanel } from "./ui";
 
@@ -138,13 +139,14 @@ export function ExportPanel(props: {
     key: chosenKey,
     chords,
     page,
+    fretboard: fretboardRequest(doc.fretboard),
   });
 
   // Prepared PDFs show the options they were made with, so they end with them.
   useEffect(() => {
     setSheets(null);
     archive.current = null;
-  }, [tempoMap, beatScale, meter, rhythm, chords, page, included]);
+  }, [tempoMap, beatScale, meter, rhythm, chords, page, included, doc.fretboard]);
 
   // The list opens below the fold, so bring it into view.
   useEffect(() => {
@@ -298,7 +300,11 @@ export function ExportPanel(props: {
                 <FileText size={14} className="text-muted" />
                 Sheet music
               </p>
-              <p className="text-xs text-muted">Full score, each instrument, and tablature.</p>
+              <p className="text-xs text-muted">
+                {doc.fretboard?.tab
+                  ? `Full score, each instrument, and ${displayName(doc.fretboard.tab).toLowerCase()} tablature.`
+                  : "Full score and each instrument. Choose a track for tablature in the Score tab."}
+              </p>
             </div>
             <Select
               label="Page size"
