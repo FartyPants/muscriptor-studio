@@ -42,6 +42,8 @@ echo The browser opens when the server is ready.
 rem Background wait: open the browser once the server answers (up to about 5 minutes).
 start "" /b powershell -NoProfile -Command "foreach ($i in 1..150) { try { $null = Invoke-WebRequest '%URL%studio/api/models' -UseBasicParsing -TimeoutSec 2; Start-Process '%URL%studio/'; break } catch { Start-Sleep 2 } }"
 
+rem After the browser wait above started: only Python gets the project's home folder.
+call "%~dp0env.bat" home
 ".venv\Scripts\python.exe" -m studio %MODEL%
 
 echo.

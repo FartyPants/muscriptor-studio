@@ -1,6 +1,12 @@
 @echo off
 rem Keeps everything this project downloads inside its own folder.
 rem Called by install.bat and the start scripts. Changes nothing on disk.
+rem
+rem   call env.bat        the project's folders for downloads and caches
+rem   call env.bat home   also makes .tools\home the home folder of whatever runs
+rem                       next. For Python, and through it MuseScore, which keeps
+rem                       its settings and logs under the home folder. Not for
+rem                       the browser, which needs the real one.
 
 set "MUSCRIPTOR_ROOT=%~dp0"
 set "MUSCRIPTOR_ROOT=%MUSCRIPTOR_ROOT:~0,-1%"
@@ -16,8 +22,16 @@ set "PYTHONIOENCODING=utf-8"
 
 rem The project's own MuseScore if it has one, then a normal install. If neither
 rem exists the variable stays unset, and MuScriptor searches the usual places.
-if exist "%MUSCRIPTOR_ROOT%\.tools\MuseScore\bin\MuseScore4.exe" (
-    set "MUSCRIPTOR_MUSESCORE=%MUSCRIPTOR_ROOT%\.tools\MuseScore\bin\MuseScore4.exe"
+if exist "%MUSCRIPTOR_ROOT%\.tools\MuseScore\MuseScore 4\bin\MuseScore4.exe" (
+    set "MUSCRIPTOR_MUSESCORE=%MUSCRIPTOR_ROOT%\.tools\MuseScore\MuseScore 4\bin\MuseScore4.exe"
 ) else if not defined MUSCRIPTOR_MUSESCORE if exist "C:\Program Files\MuseScore 4\bin\MuseScore4.exe" (
     set "MUSCRIPTOR_MUSESCORE=C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
 )
+
+if /i not "%~1"=="home" exit /b 0
+set "USERPROFILE=%MUSCRIPTOR_ROOT%\.tools\home"
+set "APPDATA=%USERPROFILE%\AppData\Roaming"
+set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
+if not exist "%APPDATA%" mkdir "%APPDATA%"
+if not exist "%LOCALAPPDATA%" mkdir "%LOCALAPPDATA%"
+exit /b 0
