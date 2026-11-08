@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectDoc } from "./api";
 import {
+  isStaleBuild,
   measureAt,
   measureBoxes,
   positionAt,
@@ -156,5 +157,19 @@ describe("scoreRequest", () => {
   it("leaves the bars to MuseScore without a beat grid", () => {
     const none = { beat_grid: null, meter: null } as unknown as ProjectDoc;
     expect(scoreRequest(none, [note], null).options).toEqual({});
+  });
+});
+
+describe("isStaleBuild", () => {
+  it("knows each browser's words for a missing score file", () => {
+    const url = "http://127.0.0.1:8222/studio/assets/opensheetmusicdisplay.min-BzzgDI8o.js";
+    expect(isStaleBuild(new TypeError(`Failed to fetch dynamically imported module: ${url}`))).toBe(true);
+    expect(isStaleBuild(new TypeError(`error loading dynamically imported module: ${url}`))).toBe(true);
+    expect(isStaleBuild(new TypeError("Importing a module script failed."))).toBe(true);
+  });
+
+  it("leaves other failures to the error message", () => {
+    expect(isStaleBuild(new Error("MuseScore is not installed"))).toBe(false);
+    expect(isStaleBuild(new TypeError("Failed to fetch"))).toBe(false);
   });
 });

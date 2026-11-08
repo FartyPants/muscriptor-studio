@@ -9,6 +9,7 @@ import {
 } from "../api";
 import type { AudioEngine } from "../audio";
 import {
+  isStaleBuild,
   measureBoxes,
   positionAt,
   renamedParts,
@@ -113,6 +114,7 @@ export function ScoreView(props: {
     "idle",
   );
   const [error, setError] = useState<string | null>(null);
+  const [staleBuild, setStaleBuild] = useState(false);
   const [hasScore, setHasScore] = useState(false);
   // What the shown score was engraved from, and what it should be.
   const wanted: Source = {
@@ -178,6 +180,7 @@ export function ScoreView(props: {
       setState("ready");
     } catch (e) {
       if (id !== run.current) return;
+      setStaleBuild(isStaleBuild(e));
       setError(e instanceof Error ? e.message : String(e));
       setState("error");
     } finally {
@@ -294,14 +297,24 @@ export function ScoreView(props: {
           Refresh
         </Button>
       </div>
-      {error && (
-        <p
-          role="alert"
-          className="shrink-0 border-b border-line px-3 py-2 text-[13px] text-danger"
-        >
-          The score could not be made. {error}
-        </p>
-      )}
+      {error &&
+        (staleBuild ? (
+          <p
+            role="alert"
+            className="flex shrink-0 items-center gap-3 border-b border-line px-3 py-2 text-[13px] text-content"
+          >
+            Studio was updated after this page opened. Reload the page to show
+            the score.
+            <Button onClick={() => location.reload()}>Reload</Button>
+          </p>
+        ) : (
+          <p
+            role="alert"
+            className="shrink-0 border-b border-line px-3 py-2 text-[13px] text-danger"
+          >
+            The score could not be made. {error}
+          </p>
+        ))}
       <div
         ref={scroller}
         className="relative min-h-0 flex-1 overflow-auto"

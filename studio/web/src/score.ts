@@ -174,3 +174,11 @@ export function timeAt(
   const start = view.measures[i];
   return Math.max(0, start + fraction * (measureEnd(view, i) - start));
 }
+
+/**
+ * Whether loading the score code failed because the page is older than the
+ * build on the server: each build renames that file and removes the old one.
+ */
+export const isStaleBuild = (e: unknown) =>
+  e instanceof TypeError &&
+  /dynamically imported module|Importing a module script failed/i.test(e.message);
