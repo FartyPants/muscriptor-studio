@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url, login
-from huggingface_hub.errors import GatedRepoError, HfHubHTTPError, LocalEntryNotFoundError
+from huggingface_hub.errors import GatedRepoError
 
 ROOT = Path(__file__).resolve().parent.parent / "models"
 
@@ -67,7 +67,7 @@ def already_there(repo: str, remote: str, path: Path) -> bool:
         return False
     try:
         return get_hf_file_metadata(hf_hub_url(repo, remote)).size == path.stat().st_size
-    except (GatedRepoError, HfHubHTTPError, LocalEntryNotFoundError, OSError):
+    except Exception:  # noqa: BLE001 - offline raises the HTTP library's own errors
         # Copied from another computer, say, and the server can't confirm it.
         return path.stat().st_size > 0
 
@@ -132,24 +132,30 @@ def install(
             except GatedRepoError:
                 if attempt == 1 and can_ask and not signed_in:
                     print(f"{name} needs a Hugging Face login, after accepting its licence at {model.page}")
-                    sign_in()
                     signed_in = True
-                    continue
+                    try:
+                        sign_in()
+                        continue
+                    except Exception as e:  # noqa: BLE001 - a mistyped token, say
+                        print(f"The login didn't work: {e}")
                 print(f"{name}: not allowed yet. Accept its licence at {model.page}, log in, then run this again.")
                 failed += 1
                 break
-            except (HfHubHTTPError, LocalEntryNotFoundError, OSError) as e:
+            except Exception as e:  # noqa: BLE001 - the HTTP library's errors aren't OSErrors
                 print(f"{name}: the download stopped ({e}). Run this again to carry on.")
                 failed += 1
                 break
 
-    shutil.rmtree(root / ".download", ignore_errors=True)
+    if not failed:
+        shutil.rmtree(root / ".download", ignore_errors=True)
     return failed
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m studio.install_models")
-    parser.add_argument("models", nargs="*", choices=[[], *MODELS], help="which models to download")
+    parser.add_argument(
+        "models", nargs="*", type=str.lower, choices=[[], *MODELS], metavar="model", help=f"any of: {', '.join(MODELS)}"
+    )
     parser.add_argument("--assets-only", action="store_true", help="only the soundfonts and the beat tracker")
     args = parser.parse_args(argv)
     names = [] if args.assets_only else args.models

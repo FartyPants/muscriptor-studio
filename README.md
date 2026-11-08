@@ -140,7 +140,7 @@ If MuseScore 4 was already installed on your computer, Studio uses that copy and
 
 ## Licences
 
-The models are [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. The code is MIT licensed, and MuScriptor is by Kyutai and Mirelo.
+The transcription models are [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): **non-commercial use only**. The instrument detection model is BSD-3-Clause. The code is MIT licensed, and MuScriptor is by Kyutai and Mirelo.
 
 ## For developers: manual install
 
@@ -167,7 +167,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install\musescore.ps1 -Force
 Download the models. It asks you to log in to Hugging Face if needed. Name any of `small`, `medium`, `large` and `tagger`:
 
 ```bat
-call .\env.bat home
+call .\env.bat
 .venv\Scripts\python.exe -m studio.install_models medium tagger
 ```
 

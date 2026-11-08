@@ -18,8 +18,7 @@ body:
     attributes:
       label: How to reproduce
       description: "The exact command(s). If it only happens with a specific file, attach it:
-        Drag-and-drop the file here, or paste a Google Drive/Dropbox link. If you can't
-        share it publicly, email it to muscriptor@kyutai.org and write \"sent by email\" here."
+        Drag-and-drop the file here, or paste a Google Drive/Dropbox link."
       placeholder: |
         1. muscriptor transcribe song.wav --format sheets
         2. ...

@@ -155,3 +155,66 @@ def test_a_copied_model_counts_when_the_server_cant_confirm_it(tmp_path, monkeyp
 def test_only_known_models_are_accepted():
     with pytest.raises(SystemExit):
         im.main(["huge"])
+
+
+def test_a_network_error_of_any_kind_is_reported(tmp_path, capsys):
+    class ConnectTimeout(Exception):
+        """What the HTTP library really raises: not an OSError."""
+
+    refuse = {"MuScriptor/muscriptor-small": ConnectTimeout("timed out")}
+    assert run(tmp_path, ["small", "tagger"], get=writer(refuse=refuse)) == 1
+    out = capsys.readouterr().out
+    assert "Run this again" in out and "tagger: done" in out
+
+
+def test_a_copied_model_counts_when_the_connection_fails_oddly(tmp_path, monkeypatch):
+    class ConnectTimeout(Exception):
+        pass
+
+    def refuse(url):
+        raise ConnectTimeout("timed out")
+
+    monkeypatch.setattr(im, "get_hf_file_metadata", refuse)
+    path = tmp_path / "m.safetensors"
+    path.write_bytes(b"x")
+    assert im.already_there("a/b", "m", path) is True
+
+
+def test_a_wrong_size_downloads_again(tmp_path, monkeypatch):
+    class Meta:
+        size = 99
+
+    monkeypatch.setattr(im, "get_hf_file_metadata", lambda url: Meta)
+    path = tmp_path / "m.safetensors"
+    path.write_bytes(b"x")
+    assert im.already_there("a/b", "m", path) is False
+
+
+def test_a_failed_login_is_reported_and_the_rest_carries_on(tmp_path, capsys):
+    def sign_in():
+        raise ValueError("Invalid token passed!")
+
+    refuse = {"MuScriptor/muscriptor-small": gated()}
+    assert run(tmp_path, ["small", "tagger"], get=writer(refuse=refuse), sign_in=sign_in, can_ask=True) == 1
+    out = capsys.readouterr().out
+    assert "login didn't work" in out and "tagger: done" in out
+
+
+def test_partial_downloads_are_kept_for_the_next_run(tmp_path):
+    (tmp_path / ".download").mkdir()
+    refuse = {"MuScriptor/muscriptor-small": OSError("cut off")}
+    run(tmp_path, ["small"], get=writer(refuse=refuse))
+    assert (tmp_path / ".download").is_dir()
+    run(tmp_path, ["tagger"])
+    assert not (tmp_path / ".download").exists()
+
+
+def test_names_can_be_typed_in_any_case(monkeypatch):
+    seen = []
+    monkeypatch.setattr(im, "install", lambda names: seen.extend(names) or 0)
+    assert im.main(["Medium", "TAGGER"]) == 0
+    assert seen == ["medium", "tagger"]
+    seen.clear()
+    assert im.main([]) == 0
+    assert seen == []
+

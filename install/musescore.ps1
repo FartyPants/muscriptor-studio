@@ -19,7 +19,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $tools = Join-Path $root ".tools"
 $target = Join-Path $tools "MuseScore"
 $exe = Join-Path $target "MuseScore 4\bin\MuseScore4.exe"
-$system = "C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
+$system = Join-Path $env:ProgramFiles "MuseScore 4\bin\MuseScore4.exe"
 
 if (Test-Path -LiteralPath $exe) {
     Write-Host "MuseScore is already in this folder."

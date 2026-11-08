@@ -24,8 +24,8 @@ rem The project's own MuseScore if it has one, then a normal install. If neither
 rem exists the variable stays unset, and MuScriptor searches the usual places.
 if exist "%MUSCRIPTOR_ROOT%\.tools\MuseScore\MuseScore 4\bin\MuseScore4.exe" (
     set "MUSCRIPTOR_MUSESCORE=%MUSCRIPTOR_ROOT%\.tools\MuseScore\MuseScore 4\bin\MuseScore4.exe"
-) else if not defined MUSCRIPTOR_MUSESCORE if exist "C:\Program Files\MuseScore 4\bin\MuseScore4.exe" (
-    set "MUSCRIPTOR_MUSESCORE=C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
+) else if not defined MUSCRIPTOR_MUSESCORE if exist "%ProgramFiles%\MuseScore 4\bin\MuseScore4.exe" (
+    set "MUSCRIPTOR_MUSESCORE=%ProgramFiles%\MuseScore 4\bin\MuseScore4.exe"
 )
 
 if /i not "%~1"=="home" exit /b 0

@@ -17,8 +17,7 @@ body:
     attributes:
       label: The audio file
       description: |
-        Drag-and-drop the file here, or paste a Google Drive/Dropbox link. If you can't
-        share it publicly, email it to muscriptor@kyutai.org and write "sent by email" here.
+        Drag-and-drop the file here, or paste a Google Drive/Dropbox link.
       placeholder: (drag the file into this box)
     validations:
       required: true
