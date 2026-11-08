@@ -23,7 +23,7 @@ Turn a recording into notes you can edit, hear and export. Studio is a local web
 ```bat
 git clone <repository-url> C:\MuScriptor
 cd /d C:\MuScriptor
-.install.bat
+.\install.bat
 ```
 
 `install.bat` fetches uv, Python and the packages, unpacks MuseScore into the folder, and asks which models to download. If it stops, fix what it says and run it again: finished steps are skipped.
@@ -39,7 +39,7 @@ The same steps by hand, in a Command Prompt (`cmd`), not PowerShell:
 ```bat
 git clone <repository-url> C:\MuScriptor
 cd /d C:\MuScriptor
-call .env.bat
+call .\env.bat
 powershell -NoProfile -ExecutionPolicy Bypass -File install\uv.ps1
 .tools\uv\uv.exe python install 3.13 --no-bin --no-registry
 .tools\uv\uv.exe venv .venv --python 3.13 --managed-python
@@ -74,7 +74,7 @@ You need at least one transcription model.
 **With the script,** from Command Prompt in this folder (`huggingface` will ask you to log in if needed):
 
 ```bat
-call .env.bat home
+call .\env.bat home
 .venv\Scripts\python.exe -m studio.install_models medium tagger
 ```
 
@@ -94,7 +94,7 @@ Studio only offers the models it finds. The soundfonts and the beat tracker down
 
 ## Moving to another computer
 
-Install on the new computer the same way, choosing no models with `.install.bat none`, then copy `models\` across. Copy `studio\data\` too if you want your transcriptions.
+Install on the new computer the same way, choosing no models with `.\install.bat none`, then copy `models\` across. Copy `studio\data\` too if you want your transcriptions.
 
 ## What stays in the folder
 
