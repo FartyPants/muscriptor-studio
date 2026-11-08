@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { api, type Analysis, type ChosenKey, type ProjectDoc, type ProjectNote } from "../api";
+import { api, type Analysis, type ChosenKey, type Fretboard, type ProjectDoc, type ProjectNote } from "../api";
 import type { AudioEngine } from "../audio";
 import { instrumentColor, resetInstrumentColors } from "../colors";
 import type { RetranscribeRequest } from "../components/RetranscribeDialog";
@@ -291,6 +291,11 @@ export function useProject(deps: {
     if (storeRef.current) syncNotes(storeRef.current);
   };
 
+  /** Tab and chord diagram choices. The score follows; notes stay as they are. */
+  const chooseFretboard = (fretboard: Fretboard | null) => {
+    updateDoc({ fretboard });
+  };
+
   /** Save a list of instruments for a project still waiting to be transcribed. */
   const saveHints = (hints: string[]) => {
     const next = { ...docRef.current!, hints };
@@ -316,6 +321,7 @@ export function useProject(deps: {
     retranscribe,
     chooseKey,
     chooseMeter,
+    chooseFretboard,
     saveHints,
     stop() {
       setStopping(true);

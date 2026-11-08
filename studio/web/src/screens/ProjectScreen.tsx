@@ -12,7 +12,7 @@ import { EditControls, RollToolbar } from "../components/Toolbar";
 import { TopBar } from "../components/TopBar";
 import { TranscribeBar } from "../components/TranscribeBar";
 import { Transport, type ProjectView } from "../components/Transport";
-import { changeInstrument, movedFlag } from "../editor/changeInstrument";
+import { canChangeInstrument, changeInstrument, movedFlag } from "../editor/changeInstrument";
 import { useEditorKeys } from "../hooks/useEditorKeys";
 import { gridWithMeter, useProject, type Range } from "../hooks/useProject";
 import { useRollFrame } from "../hooks/useRollFrame";
@@ -131,6 +131,14 @@ export function ProjectScreen({
 
   // The score shows what playback lets through.
   const scoreNotes = useMemo(() => audibleNotes(notes, muted, solo), [notes, muted, solo]);
+  // Tracks that can take tab: pitched ones in the score, most notes first.
+  const tabTracks = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const n of scoreNotes) {
+      if (canChangeInstrument(n.instrument)) counts.set(n.instrument, (counts.get(n.instrument) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  }, [scoreNotes]);
 
   const rollHiddenRef = useRef(false);
   rollHiddenRef.current = view === "score";
@@ -196,6 +204,9 @@ export function ProjectScreen({
     store.apply(changeInstrument(store.notes, from, to));
     setMuted((m) => movedFlag(m, from, to, merged));
     setSolo((s) => movedFlag(s, from, to, merged));
+    // The tab follows a renamed track; a merged one has no part of its own.
+    const fretboard = doc?.fretboard;
+    if (fretboard?.tab === from) project.chooseFretboard({ ...fretboard, tab: merged ? null : to });
     if (active === from) {
       setActive(to);
       editorRef.current?.setActive(to);
@@ -345,6 +356,8 @@ export function ProjectScreen({
                 setUserScrolled(true);
                 rollRef.current?.unfollow();
               }}
+              tracks={tabTracks}
+              onFretboard={project.chooseFretboard}
             />
           )}
         </div>

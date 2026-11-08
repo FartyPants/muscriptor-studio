@@ -54,6 +54,8 @@ export type ProjectDoc = {
   key?: ChosenKey | null;
   /** Beats per bar set by hand. Unset or null follows detection. */
   meter?: number | null;
+  /** Tab and chord diagram choices for the score. Unset means none. */
+  fretboard?: Fretboard | null;
   audio_name: string;
   created: number;
   updated: number;
@@ -92,6 +94,23 @@ async function blob(resp: Response): Promise<Blob> {
 }
 
 /** Sheet music for the Score tab. Times are transport seconds. */
+export type Tuning = "guitar" | "drop_d" | "ukulele" | "ukulele_low_g";
+
+export type Fretboard = {
+  tuning: Tuning;
+  /** 0 to 7. Frets count from the capo; chord names stay at concert pitch. */
+  capo: number;
+  /** The track that gets a tab staff, or null for none. */
+  tab: string | null;
+  /** Chord diagrams above the chord names. */
+  diagrams: boolean;
+};
+
+export const NO_FRETBOARD: Fretboard = { tuning: "guitar", capo: 0, tab: null, diagrams: false };
+
+/** What fitting the tab changed: notes moved by octaves, chord notes left out. */
+export type TabReport = { moved: number; dropped: number };
+
 export type ScoreView = {
   musicxml: string;
   /** Where each measure starts. */
@@ -100,6 +119,8 @@ export type ScoreView = {
   end: number;
   key: string | null;
   chords: number;
+  /** Null when no tab was asked for, or its track isn't in the score. */
+  tab: TabReport | null;
 };
 
 export const api = {

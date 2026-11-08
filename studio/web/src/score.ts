@@ -1,4 +1,4 @@
-import type { ChosenKey, ProjectDoc, ProjectNote, ScoreView } from "./api";
+import { NO_FRETBOARD, type ChosenKey, type Fretboard, type ProjectDoc, type ProjectNote, type ScoreView, type TabReport } from "./api";
 
 /** OSMD draws 10 pixels to its unit at zoom 1. */
 const UNIT_PX = 10;
@@ -50,7 +50,36 @@ export function scoreRequest(
     key,
     chords: true,
     page: "letter",
+    fretboard: fretboardRequest(doc.fretboard),
   };
+}
+
+/** The fretboard choice to send: none at all when it asks for nothing. */
+export function fretboardRequest(choice: Fretboard | null | undefined): Fretboard | null {
+  const fretboard = { ...NO_FRETBOARD, ...choice };
+  return fretboard.tab || fretboard.diagrams ? fretboard : null;
+}
+
+const PLAYS: Record<Fretboard["tuning"], string> = {
+  guitar: "guitar",
+  drop_d: "guitar",
+  ukulele: "ukulele",
+  ukulele_low_g: "ukulele",
+};
+
+/** What fitting the tab changed, in words. Empty when nothing changed. */
+export function tabNote(report: TabReport | null, tuning: Fretboard["tuning"]): string {
+  if (!report || (report.moved === 0 && report.dropped === 0)) return "";
+  const parts = [];
+  if (report.moved) {
+    const notes = report.moved === 1 ? "1 note" : `${report.moved.toLocaleString()} notes`;
+    parts.push(`${notes} moved by an octave to fit the ${PLAYS[tuning]}`);
+  }
+  if (report.dropped) {
+    const notes = report.dropped === 1 ? "1 chord note" : `${report.dropped.toLocaleString()} chord notes`;
+    parts.push(`${notes} left out so each chord fits one hand`);
+  }
+  return `Tab: ${parts.join(", ")}.`;
 }
 
 /**

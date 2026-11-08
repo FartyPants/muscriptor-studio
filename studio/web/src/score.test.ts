@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { ProjectDoc } from "./api";
 import {
   audibleNotes,
+  fretboardRequest,
   isStaleBuild,
   measureAt,
   measureBoxes,
   positionAt,
   renamedParts,
   scoreRequest,
+  tabNote,
   timeAt,
   type MeasureBox,
 } from "./score";
@@ -192,3 +194,39 @@ describe("audibleNotes", () => {
     expect(ids).toEqual(["a", "c"]);
   });
 });
+
+describe("fretboardRequest", () => {
+  it("sends nothing when neither tab nor diagrams are on", () => {
+    expect(fretboardRequest(undefined)).toBeNull();
+    expect(fretboardRequest({ tuning: "ukulele", capo: 3, tab: null, diagrams: false })).toBeNull();
+  });
+
+  it("sends the whole choice when something is on", () => {
+    expect(fretboardRequest({ tuning: "ukulele", capo: 3, tab: "flutes", diagrams: false })).toEqual({
+      tuning: "ukulele",
+      capo: 3,
+      tab: "flutes",
+      diagrams: false,
+    });
+  });
+
+  it("goes into the score request", () => {
+    const doc = { beat_grid: null, meter: null, fretboard: { tuning: "guitar", capo: 0, tab: "violin", diagrams: false } };
+    expect(scoreRequest(doc as unknown as ProjectDoc, [], null).fretboard?.tab).toBe("violin");
+  });
+});
+
+describe("tabNote", () => {
+  it("says what fitting the tab changed", () => {
+    expect(tabNote({ moved: 12, dropped: 3 }, "ukulele")).toBe(
+      "Tab: 12 notes moved by an octave to fit the ukulele, 3 chord notes left out so each chord fits one hand.",
+    );
+    expect(tabNote({ moved: 1, dropped: 0 }, "drop_d")).toBe("Tab: 1 note moved by an octave to fit the guitar.");
+  });
+
+  it("is empty when nothing changed or there is no tab", () => {
+    expect(tabNote({ moved: 0, dropped: 0 }, "guitar")).toBe("");
+    expect(tabNote(null, "guitar")).toBe("");
+  });
+});
+

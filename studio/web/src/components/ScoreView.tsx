@@ -3,20 +3,24 @@ import { useEffect, useRef, useState } from "react";
 import {
   api,
   type ChosenKey,
+  type Fretboard,
   type ProjectDoc,
   type ProjectNote,
   type ScoreView as View,
 } from "../api";
 import type { AudioEngine } from "../audio";
 import {
+  fretboardRequest,
   isStaleBuild,
   measureBoxes,
   positionAt,
   renamedParts,
   scoreRequest,
+  tabNote,
   timeAt,
   type MeasureBox,
 } from "../score";
+import { ScoreOptions } from "./ScoreOptions";
 import { Button } from "./ui";
 
 /** After an edit, wait this long for the next one before engraving again. */
@@ -32,6 +36,8 @@ type Source = {
   key: string;
   meter: number | null;
   grid: ProjectDoc["beat_grid"];
+  /** The fretboard request, as text, so equal choices compare equal. */
+  fretboard: string;
 };
 
 const keyId = (key: ChosenKey | null) => (key ? `${key.tonic} ${key.mode}` : "");
@@ -40,7 +46,8 @@ const sameSource = (a: Source | null, b: Source) =>
   a.notes === b.notes &&
   a.key === b.key &&
   a.meter === b.meter &&
-  a.grid === b.grid;
+  a.grid === b.grid &&
+  a.fretboard === b.fretboard;
 
 function surface(): string {
   const ink = getComputedStyle(document.documentElement)
@@ -101,9 +108,12 @@ export function ScoreView(props: {
   visible: boolean;
   following: boolean;
   onUserScroll: () => void;
+  /** Pitched tracks that can take tab, most notes first. */
+  tracks: string[];
+  onFretboard: (next: Fretboard) => void;
 }) {
   const { doc, notes, silenced, keyInUse, keyReady, audio, visible, following } = props;
-  const { onUserScroll } = props;
+  const { onUserScroll, tracks, onFretboard } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
@@ -119,12 +129,15 @@ export function ScoreView(props: {
   const [error, setError] = useState<string | null>(null);
   const [staleBuild, setStaleBuild] = useState(false);
   const [hasScore, setHasScore] = useState(false);
+  // What fitting the tab changed, for the shown score.
+  const [tabText, setTabText] = useState("");
   // What the shown score was engraved from, and what it should be.
   const wanted: Source = {
     notes,
     key: keyId(keyInUse),
     meter: doc.meter ?? null,
     grid: doc.beat_grid,
+    fretboard: JSON.stringify(fretboardRequest(doc.fretboard)),
   };
   const [engraved, setEngraved] = useState<Source | null>(null);
   const stale = !sameSource(engraved, wanted);
@@ -179,6 +192,7 @@ export function ScoreView(props: {
       drawn.current = { view, boxes, page };
       lastMeasure.current = -1;
       setHasScore(true);
+      setTabText(tabNote(view.tab, latestDoc.current.fretboard?.tuning ?? "guitar"));
       setEngraved(source);
       setState("ready");
     } catch (e) {
@@ -202,7 +216,7 @@ export function ScoreView(props: {
     return () => clearTimeout(timer);
     // `engrave` reads the latest inputs through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, stale, keyReady, notes, wanted.key, doc.meter, doc.beat_grid]);
+  }, [visible, stale, keyReady, notes, wanted.key, doc.meter, doc.beat_grid, wanted.fretboard]);
 
   // A result still on its way no longer counts once the screen goes.
   useEffect(() => () => void ++run.current, []);
@@ -274,7 +288,7 @@ export function ScoreView(props: {
       <div className="flex h-10 shrink-0 items-center gap-3 border-b border-line px-3">
         <span
           role="status"
-          className="flex items-center gap-2 text-[13px] text-muted"
+          className="flex min-w-0 flex-1 items-center gap-2 truncate text-[13px] text-muted"
         >
           {busy && (
             <LoaderCircle size={14} className="animate-spin text-accent" />
@@ -290,9 +304,12 @@ export function ScoreView(props: {
                 : notes.length > 0
                   ? "Finding the key first."
                   : ""}
+          {hasScore && !stale && !busy && tabText && (
+            <span className="truncate text-faint">{tabText}</span>
+          )}
         </span>
+        <ScoreOptions value={doc.fretboard} tracks={tracks} onChange={onFretboard} />
         <Button
-          className="ml-auto"
           disabled={busy || notes.length === 0}
           onClick={() => void engrave()}
         >
