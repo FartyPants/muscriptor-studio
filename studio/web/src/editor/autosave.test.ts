@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Autosaver, type SaveState } from "./autosave";
+import { Autosaver, ProjectGoneError, type SaveState } from "./autosave";
 
 function setup(save: () => Promise<unknown> = () => Promise.resolve()) {
   const states: SaveState[] = [];
@@ -133,3 +133,29 @@ describe("Autosaver", () => {
     expect(spy).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("Autosaver when the project is gone", () => {
+  beforeEach(() => void vi.useFakeTimers());
+  afterEach(() => void vi.useRealTimers());
+
+  it("stops trying, and has nothing left to lose", async () => {
+    const { saver, spy, states } = setup(() => Promise.reject(new ProjectGoneError()));
+    saver.changed();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(states.at(-1)).toBe("gone");
+    expect(saver.hasUnsaved).toBe(false);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores later edits", async () => {
+    const { saver, spy, states } = setup(() => Promise.reject(new ProjectGoneError()));
+    saver.changed();
+    await vi.advanceTimersByTimeAsync(2000);
+    saver.changed();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(states.at(-1)).toBe("gone");
+  });
+});
+

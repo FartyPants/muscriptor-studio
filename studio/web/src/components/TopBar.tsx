@@ -3,6 +3,14 @@ import type { SaveState } from "../editor/autosave";
 import { Button, Popover } from "./ui";
 
 function SaveBadge({ state }: { state: SaveState }) {
+  if (state === "gone") {
+    return (
+      <span role="status" aria-label="Save status" className="flex items-center gap-1 text-xs text-danger">
+        <CloudOff size={13} />
+        This project was deleted. Changes won't be saved.
+      </span>
+    );
+  }
   if (state === "failed") {
     return (
       <span role="status" aria-label="Save status" className="flex items-center gap-1 text-xs text-danger">

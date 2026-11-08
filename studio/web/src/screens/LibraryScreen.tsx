@@ -1,8 +1,8 @@
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, FileAudio, Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, FileAudio, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, type ProjectSummary } from "../api";
-import { IconButton, Select } from "../components/ui";
+import { Button, IconButton, Modal, Select } from "../components/ui";
 import {
   DEFAULT_ROWS,
   ROWS_PER_PAGE,
@@ -66,6 +66,47 @@ const open = (project: ProjectSummary) => {
   window.location.hash = `#/p/${project.id}`;
 };
 
+function DeleteDialog(props: {
+  project: ProjectSummary;
+  onDeleted: () => void;
+  onClose: () => void;
+}) {
+  const { project, onDeleted, onClose } = props;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteProject(project.id);
+      onDeleted();
+    } catch (e) {
+      setBusy(false);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <Modal title={`Delete "${project.name}"?`} onClose={onClose}>
+      <p className="text-[13px] text-muted">This removes its notes and audio from this computer. It can't be undone.</p>
+      {error && (
+        <p role="alert" className="mt-3 text-[13px] text-danger">
+          {error}
+        </p>
+      )}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="quiet" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={busy} onClick={confirm}>
+          Delete
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 /** Every project: search it, filter it, and pick one up where it was left. */
 export function LibraryScreen() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
@@ -75,6 +116,7 @@ export function LibraryScreen() {
   const [newestFirst, setNewestFirst] = useState(true);
   const [size, setSize] = useState(loadRows);
   const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const now = Date.now() / 1000;
 
   useEffect(() => {
@@ -98,6 +140,17 @@ export function LibraryScreen() {
     set(value);
     setPage(1);
   };
+  const deleteButton = (project: ProjectSummary) => (
+    <IconButton
+      label={`Delete ${project.name}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        setDeleting(project);
+      }}
+    >
+      <Trash2 size={15} />
+    </IconButton>
+  );
   const chooseSize = startOver((rows: number) => {
     setSize(rows);
     try {
@@ -181,6 +234,7 @@ export function LibraryScreen() {
                   >
                     Continue
                   </a>
+                  {deleteButton(project)}
                 </li>
               );
             })}
@@ -213,8 +267,11 @@ export function LibraryScreen() {
                 <th scope="col" className="hidden w-32 py-2.5 font-medium md:table-cell">
                   Created
                 </th>
-                <th scope="col" className="w-32 py-2.5 pr-4 font-medium">
+                <th scope="col" className="w-32 py-2.5 font-medium">
                   Status
+                </th>
+                <th scope="col" className="w-12 py-2.5 pr-2 font-medium">
+                  <span className="sr-only">Delete</span>
                 </th>
               </tr>
             </thead>
@@ -232,9 +289,10 @@ export function LibraryScreen() {
                   </td>
                   <td className="hidden py-2.5 text-[13px] text-muted sm:table-cell">{timeAgo(project.opened, now)}</td>
                   <td className="hidden py-2.5 text-[13px] text-muted md:table-cell">{timeAgo(project.created, now)}</td>
-                  <td className="py-2.5 pr-4">
+                  <td className="py-2.5">
                     <StatusBadge status={statusOf(project)} />
                   </td>
+                  <td className="py-2.5 pr-2">{deleteButton(project)}</td>
                 </tr>
               ))}
             </tbody>
@@ -265,6 +323,18 @@ export function LibraryScreen() {
             </IconButton>
           </div>
         </div>
+      )}
+
+      {deleting && (
+        <DeleteDialog
+          key={deleting.id}
+          project={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setProjects((all) => all?.filter((p) => p.id !== deleting.id) ?? null);
+            setDeleting(null);
+          }}
+        />
       )}
     </main>
   );

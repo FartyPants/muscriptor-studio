@@ -1,4 +1,7 @@
-export type SaveState = "saved" | "pending" | "saving" | "failed";
+export type SaveState = "saved" | "pending" | "saving" | "failed" | "gone";
+
+/** The project no longer exists on the server, so saving can never work. */
+export class ProjectGoneError extends Error {}
 
 const QUIET_MS = 2000;
 const RETRY_MS = 5000;
@@ -37,12 +40,12 @@ export class Autosaver {
   }
 
   get hasUnsaved(): boolean {
-    return this._state !== "saved";
+    return this._state !== "saved" && this._state !== "gone";
   }
 
   private set(state: SaveState) {
     this._state = state;
-    if (state === "saved") unsaved.delete(this);
+    if (state === "saved" || state === "gone") unsaved.delete(this);
     else unsaved.add(this);
     this.onState(state);
   }
@@ -57,6 +60,7 @@ export class Autosaver {
 
   /** Note a change. It is saved once `QUIET_MS` pass without another. */
   changed() {
+    if (this._state === "gone") return;
     this.dirty = true;
     if (!this.inFlight) this.set("pending");
     this.arm(QUIET_MS);
@@ -100,8 +104,13 @@ export class Autosaver {
       } else {
         this.set("saved");
       }
-    } catch {
+    } catch (e) {
       this.inFlight = null;
+      if (e instanceof ProjectGoneError) {
+        this.dirty = false;
+        this.set("gone");
+        return;
+      }
       this.dirty = true;
       this.set("failed");
       this.arm(RETRY_MS);

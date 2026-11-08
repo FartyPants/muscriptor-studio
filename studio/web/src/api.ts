@@ -1,4 +1,5 @@
 import type { DiagramShape } from "./chordDiagram";
+import { ProjectGoneError } from "./editor/autosave";
 import { errorDetail } from "./export";
 import { readEvents } from "./sse";
 import type { BeatGrid, ChordSpan } from "./pianoroll";
@@ -147,8 +148,16 @@ export const api = {
 
   getProject: (id: string) => fetch(`/studio/api/projects/${id}`).then(json<ProjectDoc>),
 
-  saveProject: (doc: ProjectDoc) =>
-    fetch(`/studio/api/projects/${doc.id}`, send(doc, "PUT")).then(json<ProjectDoc>),
+  saveProject: async (doc: ProjectDoc) => {
+    const resp = await fetch(`/studio/api/projects/${doc.id}`, send(doc, "PUT"));
+    if (resp.status === 404) throw new ProjectGoneError();
+    return json<ProjectDoc>(resp);
+  },
+
+  async deleteProject(id: string) {
+    const resp = await fetch(`/studio/api/projects/${id}`, { method: "DELETE" });
+    if (!resp.ok) throw new Error(await errorDetail(resp));
+  },
 
   beatGrid: (id: string, onsets: number[]) =>
     fetch(`/studio/api/projects/${id}/beat-grid`, send({ onsets }, "POST"))
