@@ -221,3 +221,23 @@ export function audibleNotes(
   if (solo.size === 0 && muted.size === 0) return notes;
   return notes.filter((n) => (solo.size > 0 ? solo.has(n.instrument) : !muted.has(n.instrument)));
 }
+
+/**
+ * A click just above the score, within `reach` pixels of a measure's top, as a
+ * click on that measure's top edge. Null when there is none so close.
+ */
+export function timeAbove(
+  view: Pick<ScoreView, "measures" | "end">,
+  boxes: MeasureBox[],
+  x: number,
+  y: number,
+  reach: number,
+): number | null {
+  let nearest: MeasureBox | null = null;
+  for (const b of boxes) {
+    if (x < b.x - b.lead || x >= b.x + b.width) continue;
+    if (b.top <= y || b.top - y > reach) continue;
+    if (!nearest || b.top < nearest.top) nearest = b;
+  }
+  return nearest ? timeAt(view, boxes, x, nearest.top) : null;
+}

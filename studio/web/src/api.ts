@@ -1,3 +1,4 @@
+import type { DiagramShape } from "./chordDiagram";
 import { errorDetail } from "./export";
 import { readEvents } from "./sse";
 import type { BeatGrid, ChordSpan } from "./pianoroll";
@@ -121,6 +122,8 @@ export type ScoreView = {
   chords: number;
   /** Null when no tab was asked for, or its track isn't in the score. */
   tab: TabReport | null;
+  /** One chord shape per chord symbol, in score order, when diagrams are on. */
+  diagrams: DiagramShape[] | null;
 };
 
 export const api = {

@@ -1,6 +1,6 @@
 import { NO_FRETBOARD, type Fretboard, type Tuning } from "../api";
 import { displayName } from "../instruments";
-import { Select } from "./ui";
+import { Select, Toggle } from "./ui";
 
 const TUNINGS: { value: Tuning; label: string }[] = [
   { value: "guitar", label: "Guitar" },
@@ -35,6 +35,9 @@ export function ScoreOptions(props: {
   const fretted = Boolean(value.tab) || value.diagrams;
   return (
     <div className="flex items-center gap-2">
+      <Toggle pressed={value.diagrams} onClick={() => onChange({ ...value, diagrams: !value.diagrams })}>
+        Diagrams
+      </Toggle>
       <Select
         label="Tablature"
         hideLabel

@@ -10,6 +10,7 @@ import {
   renamedParts,
   scoreRequest,
   tabNote,
+  timeAbove,
   timeAt,
   type MeasureBox,
 } from "./score";
@@ -227,6 +228,18 @@ describe("tabNote", () => {
   it("is empty when nothing changed or there is no tab", () => {
     expect(tabNote({ moved: 0, dropped: 0 }, "guitar")).toBe("");
     expect(tabNote(null, "guitar")).toBe("");
+  });
+});
+
+describe("timeAbove", () => {
+  it("takes a click just above a system as a click on its measure", () => {
+    expect(timeAbove(view, boxes, 200, -30, 50)).toBe(1);
+    expect(timeAbove(view, boxes, 300, 110, 50)).toBe(5);
+  });
+
+  it("ignores clicks too far above, or beside, every measure", () => {
+    expect(timeAbove(view, boxes, 200, -80, 50)).toBeNull();
+    expect(timeAbove(view, boxes, 600, -10, 50)).toBeNull();
   });
 });
 
