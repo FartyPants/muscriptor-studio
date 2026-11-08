@@ -2,7 +2,7 @@ import { ArrowLeft, AudioLines, FileAudio, Upload } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 import { api, type ModelSize, type ModelsState } from "../api";
-import { ModelPicker } from "../components/ModelPicker";
+import { availableModel, ModelPicker } from "../components/ModelPicker";
 import { Button } from "../components/ui";
 
 export function StartScreen() {
@@ -18,7 +18,11 @@ export function StartScreen() {
   useEffect(() => {
     api
       .models()
-      .then(setModels)
+      .then((state) => {
+        setModels(state);
+        // Not everyone installs every model.
+        setSize((wanted) => availableModel(state.models, wanted) ?? wanted);
+      })
       .catch(() => setError("The MuScriptor server isn't responding. Start it with start-studio.bat."));
     api.projects().then((projects) => setHasProjects(projects.length > 0), () => {});
   }, []);
@@ -91,7 +95,13 @@ export function StartScreen() {
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />
 
-        {models && (
+        {models && !models.models.some((m) => m.available) && (
+          <p role="alert" className="mt-5 text-[13px] text-danger">
+            No models are installed yet. Run install.bat, or see Models in the README.
+          </p>
+        )}
+
+        {models?.models.some((m) => m.available) && (
           <div className="mt-5">
             <ModelPicker models={models.models} value={size} onChange={setSize} />
             <div className="mt-4 flex justify-end">

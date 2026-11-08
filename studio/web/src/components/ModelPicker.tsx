@@ -38,6 +38,13 @@ const SIZES: Record<ModelSize, Size> = {
   },
 };
 
+/** `wanted` if its weights are on disk, else the next best that is, or null for none. */
+export function availableModel(models: ModelInfo[], wanted: ModelSize): ModelSize | null {
+  const has = (size: ModelSize) => models.some((m) => m.size === size && m.available);
+  if (has(wanted)) return wanted;
+  return (["medium", "small", "large"] as const).find(has) ?? null;
+}
+
 /** Small, Medium or Large, whichever are on disk. The server loads the choice when work starts. */
 export function ModelPicker(props: {
   models: ModelInfo[];

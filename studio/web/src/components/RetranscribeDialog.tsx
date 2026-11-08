@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type ModelSize, type ModelsState, type ProjectDoc } from "../api";
 import { formatClock } from "../progress";
 import { InstrumentChooser } from "./InstrumentChooser";
-import { ModelPicker } from "./ModelPicker";
+import { availableModel, ModelPicker } from "./ModelPicker";
 import { Button, Modal } from "./ui";
 
 export type RetranscribeRequest = { hints: string[]; model: ModelSize };
@@ -21,7 +21,10 @@ export function RetranscribeDialog(props: {
   const [hints, setHints] = useState<string[]>(doc.hints ?? []);
 
   useEffect(() => {
-    api.models().then(setModels, () => {});
+    api.models().then((state) => {
+      setModels(state);
+      setSize((wanted) => availableModel(state.models, wanted) ?? wanted);
+    }, () => {});
   }, []);
 
   const scope = range
