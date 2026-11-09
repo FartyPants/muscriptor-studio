@@ -137,6 +137,9 @@ export type ScoreView = {
   diagrams: DiagramShape[] | null;
 };
 
+/** How often to look at a model that is still loading. */
+const LOAD_POLL_MS = 500;
+
 export const api = {
   models: () => fetch("/studio/api/models").then(json<ModelsState>),
 
@@ -192,13 +195,22 @@ export const api = {
     return new File([data], "range.wav", { type: "audio/wav" });
   },
 
-  /** Load the model `doc` was set up for, if another one is in memory. */
-  async ensureModel(doc: ProjectDoc, onLoading?: () => void) {
-    const state = await api.models();
-    if (doc.model && state.active !== doc.model) {
-      onLoading?.();
-      await api.chooseModel(doc.model);
+  /**
+   * Load the model `doc` was set up for, if another one is in memory. A load
+   * already under way, such as the one Continue starts, is waited for, because
+   * the server refuses a second one.
+   */
+  async ensureModel(doc: ProjectDoc, onLoading?: () => void, signal?: AbortSignal) {
+    if (!doc.model) return;
+    let state = await api.models();
+    if (state.active === doc.model) return;
+    onLoading?.();
+    while (state.switching) {
+      await new Promise((done) => setTimeout(done, LOAD_POLL_MS));
+      signal?.throwIfAborted();
+      state = await api.models();
     }
+    if (state.active !== doc.model) await api.chooseModel(doc.model);
   },
 
   /** Suggested instrument names, most notes first. */
@@ -211,7 +223,7 @@ export const api = {
       onHeard: (suggestions: InstrumentSuggestion[]) => void;
     },
   ): Promise<string[]> {
-    await api.ensureModel(doc, on.onLoading);
+    await api.ensureModel(doc, on.onLoading, signal);
     const resp = await fetch(`/studio/api/projects/${doc.id}/detect-instruments`, {
       method: "POST",
       signal,

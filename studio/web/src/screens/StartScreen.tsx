@@ -33,6 +33,9 @@ export function StartScreen() {
     try {
       setStatus("Uploading");
       const doc = await api.createProject(file, size);
+      // Every next step needs the model, so don't wait to be asked. If this
+      // fails, ensureModel tries again and shows the reason.
+      api.chooseModel(size).catch(() => {});
       window.location.hash = `#/p/${doc.id}`;
     } catch (e) {
       setStatus(null);
