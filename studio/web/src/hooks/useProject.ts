@@ -122,10 +122,14 @@ export function useProject(deps: {
     saverRef.current?.changed();
   }
 
+  /** Earliest first, as the instruments arrive during a live transcription. */
+  function assignColors(stored: ProjectNote[]) {
+    [...stored].sort((a, b) => a.start - b.start).forEach((n) => instrumentColor(n.instrument));
+  }
+
   /** Start editing `saved`: one store, followed by the roll and playback. */
   function showProject(saved: ProjectDoc) {
-    // Earliest first, as the instruments arrive during a live transcription.
-    [...saved.notes].sort((a, b) => a.start - b.start).forEach((n) => instrumentColor(n.instrument));
+    assignColors(saved.notes);
     const store = new NoteStore(saved.notes);
     storeRef.current = store;
     rollRef.current?.setGridLines(gridWithMeter(saved));
@@ -201,12 +205,47 @@ export function useProject(deps: {
     }
   }
 
-  /** Transcribe again, then swap the notes as one undo step. A failure changes nothing. */
+  /** Empty the roll and playback, to watch a whole song arrive like the first time. */
+  function startOver() {
+    if (analysisTimer.current !== null) clearTimeout(analysisTimer.current);
+    analysisTimer.current = null;
+    analysisRun.current++;
+    setAnalysis(null);
+    setNotes([]);
+    setLiveNames([]);
+    resetInstrumentColors();
+    rollRef.current?.clear();
+    rollRef.current?.setChords([]);
+    audio.replaceNotes([], null, []);
+    audio.stop();
+    setPhase("transcribing");
+  }
+
+  /** After `startOver`: show the store's notes, the new ones or those from before. */
+  function finishOver(store: NoteStore, replaced: boolean) {
+    if (!replaced) {
+      resetInstrumentColors();
+      assignColors(store.notes);
+    }
+    rollRef.current?.setGridLines(gridWithMeter(docRef.current));
+    syncNotes(store);
+    rollRef.current?.showStart();
+    scheduleAnalysis(0);
+    setPhase("ready");
+  }
+
+  /**
+   * Transcribe again, then swap the notes as one undo step. A failure keeps the
+   * notes. The whole song is shown arriving; a range runs out of sight.
+   */
   async function retranscribe(target: Range | null, { hints, model }: RetranscribeRequest) {
     const current = docRef.current;
     const store = storeRef.current;
     if (!current || !store) return;
-    setBackground(true);
+    const whole = target === null;
+    let replaced = false;
+    if (whole) startOver();
+    else setBackground(true);
     setStopping(false);
     setError(null);
     try {
@@ -216,7 +255,8 @@ export function useProject(deps: {
       setNotice(null);
       const delay = current.beat_grid?.onset_delay ?? 0;
       const file = target ? await api.audioRange(current.id, target) : fileRef.current!;
-      const outcome = await transcribe(file, hints, { live: false });
+      // The bars stay: it's the same recording.
+      const outcome = await transcribe(file, hints, { live: whole, detectTempo: false });
       if (!outcome || !mounted.current) return;
       const found = outcome.notes
         .map((n) => ({
@@ -228,6 +268,7 @@ export function useProject(deps: {
       if (outcome.stopped && found.length === 0) return;
       const { from, to } = replacedSpan(found, target, delay, outcome.stopped);
       store.apply(replaceRange(store.notes, found, from, to));
+      replaced = true;
       // Only now: a run that failed leaves the project as it was.
       updateDoc({ hints, model });
       // Don't make this much work wait for the autosave delay.
@@ -235,6 +276,7 @@ export function useProject(deps: {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      if (whole && mounted.current) finishOver(store, replaced);
       setBackground(false);
       setStopping(false);
     }

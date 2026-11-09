@@ -88,7 +88,7 @@ export function ProjectScreen({
   const editorRef = project.editor;
 
   const [muted, setMuted] = useState<Set<string>>(new Set());
-  const [solo, setSolo] = useState<Set<string>>(new Set());
+  const [chosenSolo, setSolo] = useState<Set<string>>(new Set());
   const [display, setDisplay] = useState(loadDisplay);
   const [editing, setEditing] = useState(false);
   const [snap, setSnap] = useState(true);
@@ -130,6 +130,18 @@ export function ProjectScreen({
     [doc?.key, detectedKey?.tonic, detectedKey?.mode],
   );
 
+  const names = useMemo(
+    () =>
+      notes.length ? [...new Set(notes.map((n) => n.instrument))] : liveNames,
+    [notes, liveNames],
+  );
+  // A solo on a track that's gone would silence the rest, with no button left
+  // to end it. It comes back if an undo brings the track back.
+  const solo = useMemo(
+    () => new Set([...chosenSolo].filter((name) => names.includes(name))),
+    [chosenSolo, names],
+  );
+
   // The score shows what playback lets through.
   const scoreNotes = useMemo(() => audibleNotes(notes, muted, solo), [notes, muted, solo]);
   // Tracks that can take tab: pitched ones in the score, most notes first.
@@ -167,12 +179,6 @@ export function ProjectScreen({
     rollRef.current?.setLooping(looping);
   }, [audio, looping, range]);
 
-  const names = useMemo(
-    () =>
-      notes.length ? [...new Set(notes.map((n) => n.instrument))] : liveNames,
-    [notes, liveNames],
-  );
-
   // A solo silences everything else. Mutes come back when it ends.
   useEffect(() => {
     for (const name of names) {
@@ -205,6 +211,19 @@ export function ProjectScreen({
     editorRef.current?.setEnabled(false);
     setEditing(false);
     setRedo(null);
+    if (!target) {
+      // Starting over. These names are about to go, so unmute them while known.
+      for (const name of names) {
+        audio.setInstrumentMuted(name, false);
+        rollRef.current?.setInstrumentMuted(name, false);
+      }
+      setMuted(new Set());
+      setSolo(new Set());
+      setActive(null);
+      setUserScrolled(false);
+      setRange(null);
+      rollRef.current?.setRange(null);
+    }
     void project.retranscribe(target, request);
   };
 

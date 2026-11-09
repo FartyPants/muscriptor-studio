@@ -40,7 +40,7 @@ export function useProjectTranscription(deps: {
   async function transcribe(
     file: File,
     instruments: string[],
-    { live = true }: { live?: boolean } = {},
+    { live = true, detectTempo = live }: { live?: boolean; detectTempo?: boolean } = {},
   ): Promise<TranscriptionOutcome | null> {
     const { audio, progress, onBusy, onAccepted, onInstrument } = deps;
     // Not live: a re-transcription leaves the roll and playback alone until done.
@@ -61,7 +61,7 @@ export function useProjectTranscription(deps: {
       for await (const raw of streamTranscribeWithRetry("/transcribe", file, {
         extra: {
           ...(instruments.length > 0 ? { instruments } : {}),
-          ...(live ? {} : { detect_tempo: "false" }),
+          ...(detectTempo ? {} : { detect_tempo: "false" }),
         },
         signal: controller.signal,
         clientId: CLIENT_ID,

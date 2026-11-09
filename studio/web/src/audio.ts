@@ -82,6 +82,13 @@ const LOOP_FADE = 0.004;
  */
 const LOOP_EDGE = 0.03;
 
+/** Zero-gain shadow channels, used only to pre-decode samples: see `warmNote`. */
+const WARM_CHANNEL = 14;
+const WARM_DRUM_CHANNEL = 15;
+
+/** Notes on a channel added past the first 16 made no sound, so these are shared out. */
+const INSTRUMENT_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13];
+
 export class AudioEngine {
   private ctx!: AudioContext;
   private synth: WorkletSynthesizer | null = null;
@@ -89,11 +96,10 @@ export class AudioEngine {
   private pendingNotes: NoteOpts[] = [];
   /** MIDI channel assigned to each instrument group. */
   private channels = new Map<string, number>();
-  /** Zero-gain shadow channel per instrument, used only to pre-decode samples. */
-  private warmChannels = new Map<string, number>();
+  /** The instrument {@link WARM_CHANNEL} is set to. */
+  private warmInstrument: string | null = null;
   /** `instrument:pitch` pairs already warmed (the synth caches per-pitch voices). */
   private warmedNotes = new Set<string>();
-  private nextChannel = 0;
   /** All notes ever scheduled — kept so Play-from-0 can re-schedule them. */
   private allNotes: NoteOpts[] = [];
   private autoStopAt: number | null = null;
@@ -176,6 +182,9 @@ export class AudioEngine {
       await soundfont,
       "MuseScore_General",
     );
+    synth.midiChannels[WARM_CHANNEL]?.setSystemParameter("gain", 0);
+    synth.midiChannels[WARM_DRUM_CHANNEL]?.setSystemParameter("gain", 0);
+    synth.midiChannels[WARM_DRUM_CHANNEL]?.setDrums(true);
     this.synth = synth;
     const queued = this.pendingNotes;
     this.pendingNotes = [];
@@ -238,59 +247,54 @@ export class AudioEngine {
     if (instrument === "drums") {
       ch = DRUM_CHANNEL;
     } else {
-      ch = this.nextChannel++;
-      if (this.nextChannel === DRUM_CHANNEL) this.nextChannel++;
-      while (ch >= synth.channelCount) synth.addNewChannel();
+      ch = this.freeChannel();
       synth.programChange(ch, GM_PROGRAM[instrument] ?? 0);
     }
-    if (this.mutedInstruments.has(instrument)) {
-      synth.midiChannels[ch]?.setSystemParameter("isMuted", true);
-    }
+    synth.midiChannels[ch]?.setSystemParameter("isMuted", this.mutedInstruments.has(instrument));
     this.channels.set(instrument, ch);
     return ch;
   }
 
   /**
-   * Get (or create) the zero-gain shadow channel used to pre-warm `instrument`.
-   *
-   * The soundfont is vorbis-compressed (SF3): the worklet decodes each sample
-   * lazily — synchronously, on the audio thread — the first time a voice needs
-   * it, which audibly stutters playback (see {@link warmNote}). A shadow
-   * channel with the same program but channel gain 0 lets us trigger those
-   * decodes silently; the decoded samples and built voices land in synth-wide
-   * caches keyed by (preset, key, velocity), so the real channel then plays
-   * warm.
+   * An unused channel, or one held by an instrument no longer in the song. With
+   * more instruments than channels the last one is shared: wrong, but audible.
    */
-  private warmChannelFor(instrument: string): number {
-    let ch = this.warmChannels.get(instrument);
-    if (ch !== undefined) return ch;
-    const synth = this.synth!;
-    ch = this.nextChannel++;
-    if (this.nextChannel === DRUM_CHANNEL) this.nextChannel++;
-    while (ch >= synth.channelCount) synth.addNewChannel();
-    if (instrument === "drums") {
-      synth.midiChannels[ch]?.setDrums(true);
-    } else {
-      synth.programChange(ch, GM_PROGRAM[instrument] ?? 0);
+  private freeChannel(): number {
+    const taken = new Set(this.channels.values());
+    const free = INSTRUMENT_CHANNELS.find((ch) => !taken.has(ch));
+    if (free !== undefined) return free;
+    const inSong = new Set([...this.allNotes, ...this.pendingNotes].map((n) => n.instrument));
+    for (const [name, ch] of this.channels) {
+      if (ch !== DRUM_CHANNEL && !inSong.has(name)) {
+        this.channels.delete(name);
+        return ch;
+      }
     }
-    synth.midiChannels[ch]?.setSystemParameter("gain", 0);
-    this.warmChannels.set(instrument, ch);
-    return ch;
+    return INSTRUMENT_CHANNELS[INSTRUMENT_CHANNELS.length - 1];
   }
 
   /**
    * Pre-decode the sample(s) behind a note by playing it once, immediately and
-   * silently, on the instrument's shadow channel. Called as notes stream in
-   * during transcription so first playback doesn't stall on vorbis decodes.
-   * Velocity must match playback ({@link NOTE_VELOCITY}) — the synth's voice
-   * cache is keyed on it.
+   * silently, on a shadow channel. Called as notes stream in during
+   * transcription so first playback doesn't stall on vorbis decodes.
+   *
+   * The soundfont is vorbis-compressed (SF3): the worklet decodes each sample
+   * lazily — synchronously, on the audio thread — the first time a voice needs
+   * it, which audibly stutters playback. The decoded samples and built voices
+   * land in synth-wide caches keyed by (preset, key, velocity), so the real
+   * channel then plays warm. Velocity must match playback
+   * ({@link NOTE_VELOCITY}).
    */
   private warmNote(instrument: string, pitch: number) {
     const key = `${instrument}:${pitch}`;
     if (this.warmedNotes.has(key)) return;
     this.warmedNotes.add(key);
     const synth = this.synth!;
-    const ch = this.warmChannelFor(instrument);
+    const ch = instrument === "drums" ? WARM_DRUM_CHANNEL : WARM_CHANNEL;
+    if (ch === WARM_CHANNEL && this.warmInstrument !== instrument) {
+      synth.programChange(ch, GM_PROGRAM[instrument] ?? 0);
+      this.warmInstrument = instrument;
+    }
     synth.noteOn(ch, pitch, NOTE_VELOCITY);
     synth.noteOff(ch, pitch);
   }
@@ -566,6 +570,8 @@ export class AudioEngine {
     for (const ch of this.channels.values()) {
       this.synth?.midiChannels[ch]?.setSystemParameter("isMuted", false);
     }
+    // The next song's instruments need them.
+    this.channels.clear();
   }
 
   /** Remember the auto-stop time and schedule it for the current run. */
