@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import muscriptor.server as upstream_server
 from muscriptor.server import ExportRequest, create_app
 from muscriptor.tokenizer.mt3 import MT3_FULL_PLUS_GROUP_NAMES
 from muscriptor.utils.beats import BeatGrid
@@ -166,6 +167,19 @@ class ScoreRequest(ExportRequest):
     sync: SyncNames | None = None
 
 
+def read_compressed(source: io.BytesIO):
+    """Decode a non-WAV file held in memory, allowing zero bytes before its audio.
+
+    Some MP3 encoders leave them. libsndfile only reads such a file when its
+    name ends in .mp3, and a file in memory has no name.
+    """
+    try:
+        return _read_non_wav_file(source)
+    except sf.LibsndfileError:
+        source.seek(0)
+        return _read_non_wav_file(io.BytesIO(source.read().lstrip(b"\0")))
+
+
 def read_audio(path: Path):
     """Decode `path` the way `/transcribe` does: WAV first, then anything else."""
     with open(path, "rb") as f:
@@ -173,7 +187,7 @@ def read_audio(path: Path):
     try:
         return _read_wav_file(io.BytesIO(data))
     except (wave.Error, EOFError):
-        return _read_non_wav_file(io.BytesIO(data))
+        return read_compressed(io.BytesIO(data))
 
 
 def grid_to_json(grid: Any) -> dict[str, Any]:
@@ -200,6 +214,9 @@ def create_studio_app(
     # web_dir=None: upstream mounts "/" last, which would swallow anything
     # added after it. It is mounted below instead, once Studio's routes exist.
     app = create_app(holder, web_dir=None)
+    # `/transcribe` is upstream's and looks this name up on each call. Only a
+    # process running Studio gets the swap, so the original server is unchanged.
+    upstream_server._read_non_wav_file = read_compressed
     app.add_middleware(TranscribeGuard, holder=holder, autoload=autoload)
 
     api = APIRouter(prefix="/studio/api")
