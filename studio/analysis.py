@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from studio.tracks import base_instrument
+
 SHARPS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 FLATS = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
 
@@ -91,7 +93,7 @@ def _melodic(notes: Sequence[Any]) -> list[Any]:
 
 
 def _weight(note: Any) -> float:
-    weight = BASS_WEIGHT if note.instrument in BASS_INSTRUMENTS else 1.0
+    weight = BASS_WEIGHT if base_instrument(note.instrument) in BASS_INSTRUMENTS else 1.0
     return weight * LOW_NOTE_WEIGHT if note.pitch < LOW_NOTE_PITCH else weight
 
 

@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from studio.fretboard import TUNINGS, Fret, fret_groups, refret_group
+from studio.tracks import track_title
 
 STEPS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 SHARP_NAMES = [("C", 0), ("C", 1), ("D", 0), ("D", 1), ("E", 0), ("F", 0),
@@ -49,7 +50,7 @@ def _is_drum_part(part: ET.Element) -> bool:
 
 def find_part(root: ET.Element, instrument: str) -> ET.Element | None:
     """The pitched part MuseScore named after `instrument`, e.g. "Classical Guitar, acoustic guitar"."""
-    wanted = instrument.replace("_", " ").lower()
+    wanted = track_title(instrument).lower()
     names = {sp.get("id"): sp.findtext("part-name") or "" for sp in root.iter("score-part")}
     for part in root.findall("part"):
         track = names.get(part.get("id"), "").rsplit(", ", 1)[-1].strip().lower()

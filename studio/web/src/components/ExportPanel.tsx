@@ -64,7 +64,7 @@ function fileLabel(file: string, instruments: string[]): string {
   const stem = file.replace(/^\d+_/, "").replace(/\.pdf$/, "");
   const tab = stem.endsWith("_tab");
   const part = tab ? stem.slice(0, -4) : stem;
-  const known = instruments.find((name) => part.endsWith(name));
+  const known = instruments.find((name) => part.endsWith(name.replace("#", "_")));
   const text = known ? displayName(known) : part.replace(/_/g, " ");
   return tab ? `${text} tablature` : text;
 }

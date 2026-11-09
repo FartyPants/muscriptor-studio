@@ -157,7 +157,24 @@ const ALIASES: Record<string, string[]> = (() => {
 
 /** Display form of an instrument id ("electric_bass" -> "electric bass"). */
 export function label(name: string): string {
-  return name.replace(/_/g, " ");
+  return name.replace(/_/g, " ").replace("#", " ");
+}
+
+/**
+ * The instrument a track plays. A track split from another has the same
+ * instrument under its own name: `acoustic_guitar#2` plays `acoustic_guitar`.
+ */
+export function baseInstrument(name: string): string {
+  return name.split("#")[0];
+}
+
+/** A name for a new track split from `name`, unused by `names`. */
+export function nextTrackName(name: string, names: string[]): string {
+  const base = baseInstrument(name);
+  for (let number = 2; ; number++) {
+    const candidate = `${base}#${number}`;
+    if (!names.includes(candidate)) return candidate;
+  }
 }
 
 /** True if every char of `q` appears in `text` in order (typo-tolerant). */

@@ -131,14 +131,14 @@ export function isRetimed(detected: BeatGrid | null, timing: TimingOverrides): b
   return timing.beat_scale !== 1 || (timing.bpm !== null && timing.bpm !== detected?.bpm);
 }
 
-/** The .mid for `notes`, written by the server's /export with these options. */
+/** The .mid for `notes`, written by the server with these options. */
 export async function exportMidi(
   notes: ExportNote[],
   detected: BeatGrid | null,
   timing: TimingOverrides,
   cleanup: NoteCleanup,
 ): Promise<Blob> {
-  const resp = await fetch("/export", {
+  const resp = await fetch("/studio/api/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

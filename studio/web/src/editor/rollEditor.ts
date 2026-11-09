@@ -13,7 +13,9 @@ import {
   updatePatch,
 } from "./gestures";
 import { hitTest, NoteIndex, notesInBox, pitchAtY, timeAtX, type NoteZone, type RollView } from "./hitTest";
-import type { NoteStore } from "./noteStore";
+import { canChangeInstrument } from "./changeInstrument";
+import type { NoteStore, Patch } from "./noteStore";
+import { splitPatch } from "./splitTrack";
 import { gridStep, snapTime } from "./snap";
 
 /** Mouse travel before a press counts as a drag. */
@@ -33,7 +35,10 @@ type Drag =
       pitchShift: number;
       after: ProjectNote[];
     }
-  | { kind: "box"; x: number; y: number; base: Set<string>; started: boolean };
+  | { kind: "box"; x: number; y: number; base: Set<string>; started: boolean; unmark: boolean };
+
+/** Notes of the active track being marked to move to the new track `to`. */
+type Split = { to: string; marked: Set<string>; color: string };
 
 const LIMITS = { low: PITCH_MIN, high: PITCH_MAX };
 
@@ -51,6 +56,7 @@ export class RollEditor {
   private selected = new Set<string>();
   private clipboard: ProjectNote[] = [];
   private drag: Drag | null = null;
+  private split: Split | null = null;
   private index = new NoteIndex([]);
   private delay = 0;
 
@@ -99,14 +105,89 @@ export class RollEditor {
   }
 
   setEnabled(on: boolean) {
+    if (!on) this.cancelSplit();
     this.enabled = on;
     if (!on) this.selected = new Set();
     this.pushState();
   }
 
   setActive(instrument: string | null) {
+    this.cancelSplit();
     this.active = instrument;
     this.selected = new Set();
+    this.pushState();
+  }
+
+  // ---- splitting a track ----------------------------------------------------
+
+  private trackSize(): number {
+    return this.store.notes.filter((n) => n.instrument === this.active).length;
+  }
+
+  get canSplit(): boolean {
+    return this.active !== null && canChangeInstrument(this.active) && this.trackSize() >= 2;
+  }
+
+  get splitting(): boolean {
+    return this.split !== null;
+  }
+
+  get splitTarget(): string | null {
+    return this.split?.to ?? null;
+  }
+
+  get markedCount(): number {
+    return this.split?.marked.size ?? 0;
+  }
+
+  /** Each of the two tracks must end up with notes. */
+  get canFinishSplit(): boolean {
+    return this.markedCount > 0 && this.markedCount < this.trackSize();
+  }
+
+  /** Start marking notes of the active track for the new track `to`, drawn in `color`. */
+  startSplit(to: string, marked: Set<string>, color: string) {
+    if (!this.canSplit) return;
+    this.selected = new Set();
+    this.split = { to, marked: new Set(marked), color };
+    this.showMarks();
+    this.pushState();
+  }
+
+  private showMarks() {
+    this.roll.setSplitMarks(this.split && { notes: this.split.marked, color: this.split.color });
+  }
+
+  private endSplit() {
+    this.split = null;
+    this.drag = null;
+    this.roll.setMarquee(null);
+    this.showMarks();
+    this.pushState();
+  }
+
+  cancelSplit() {
+    if (this.split) this.endSplit();
+  }
+
+  /** Move the marked notes to the new track, as one undo step. Returns whether it did. */
+  finishSplit(effect?: Patch["effect"]): boolean {
+    const split = this.split;
+    if (!split || !this.canFinishSplit) return false;
+    this.store.apply({ ...splitPatch(this.store.notes, split.marked, split.to), effect });
+    this.endSplit();
+    return true;
+  }
+
+  private splitDown(split: Split, x: number, y: number, shift: boolean) {
+    const hit = hitTest(x, y, this.index, this.view(), this.active);
+    if (!hit) {
+      this.drag = { kind: "box", x, y, base: new Set(split.marked), started: false, unmark: shift };
+      return;
+    }
+    if (!split.marked.delete(hit.noteId)) split.marked.add(hit.noteId);
+    const clicked = this.store.get(hit.noteId);
+    if (clicked) this.audio.audition(clicked.instrument, clicked.pitch);
     this.pushState();
   }
 
@@ -138,14 +219,19 @@ export class RollEditor {
     if (!this.claims(y)) return "default";
     const hit = hitTest(x, y, this.index, this.view(), this.active);
     if (!hit) return "crosshair";
+    if (this.split) return "pointer";
     return hit.zone === "body" || this.active === "drums" ? "move" : "ew-resize";
   }
 
   down(x: number, y: number, shift: boolean) {
+    if (this.split) {
+      this.splitDown(this.split, x, y, shift);
+      return;
+    }
     const hit = hitTest(x, y, this.index, this.view(), this.active);
     if (!hit) {
       const base = shift ? new Set(this.selected) : new Set<string>();
-      this.drag = { kind: "box", x, y, base, started: false };
+      this.drag = { kind: "box", x, y, base, started: false, unmark: false };
       if (!shift) {
         this.selected = new Set();
         this.pushState();
@@ -202,7 +288,16 @@ export class RollEditor {
       this.index,
       this.active,
     );
-    this.selected = new Set([...drag.base, ...inside]);
+    if (this.split) {
+      this.split.marked = new Set(drag.base);
+      for (const id of inside) {
+        if (drag.unmark) this.split.marked.delete(id);
+        else this.split.marked.add(id);
+      }
+      this.showMarks();
+    } else {
+      this.selected = new Set([...drag.base, ...inside]);
+    }
     this.roll.setMarquee({ x0: drag.x, y0: drag.y, x1: x, y1: y });
     this.pushState();
   }
@@ -258,7 +353,7 @@ export class RollEditor {
   /** Double-click on empty space: add a note to the active instrument. */
   add(x: number, y: number) {
     const instrument = this.active;
-    if (!instrument || !this.claims(y)) return;
+    if (!instrument || this.split || !this.claims(y)) return;
     const view = this.view();
     if (hitTest(x, y, this.index, view, instrument)) return;
     const clicked = pitchAtY(y, view);
@@ -318,10 +413,15 @@ export class RollEditor {
   /** Handle an edit shortcut. Returns whether it was one. */
   key(e: KeyboardEvent): boolean {
     if (!this.enabled) return false;
+    if (this.split && e.key === "Escape") {
+      this.cancelSplit();
+      return true;
+    }
     // A drag's patch is built from where it started, so nothing may change first.
     if (this.drag) return true;
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+    if (this.split) return ctrl && "zycv".includes(key);
     if (ctrl && key === "z") {
       if (e.shiftKey) this.redo();
       else this.undo();

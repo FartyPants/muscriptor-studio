@@ -389,6 +389,7 @@ export class PianoRoll {
   /** Editing: the only instrument at full strength, or null when not editing. */
   private activeInstrument: string | null = null;
   private selectedNotes: Set<string> = new Set();
+  private splitMarks: { notes: ReadonlySet<string>; color: string } | null = null;
   private overrides: Map<string, RollOverride> | null = null;
   private marquee: Marquee | null = null;
   private chords: ChordSpan[] = [];
@@ -480,6 +481,11 @@ export class PianoRoll {
   setEditState(active: string | null, selected: Set<string>) {
     this.activeInstrument = active;
     this.selectedNotes = selected;
+  }
+
+  /** Draw these notes in `color`, as the track they would move to, until cleared. */
+  setSplitMarks(marks: { notes: ReadonlySet<string>; color: string } | null) {
+    this.splitMarks = marks;
   }
 
   /** Draw these notes at new positions, until cleared with null. */
@@ -1037,7 +1043,10 @@ export class PianoRoll {
         else if (anySelected && !selected) alpha = Math.min(alpha, 0.45);
       }
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = instrumentColor(instrument);
+      ctx.fillStyle =
+        original.id !== undefined && this.splitMarks?.notes.has(original.id)
+          ? this.splitMarks.color
+          : instrumentColor(instrument);
       const tall = Math.max(2, rowH - rowGap);
       const corner = Math.min(2, w / 2, tall / 2);
       ctx.beginPath();

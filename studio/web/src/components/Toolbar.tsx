@@ -1,9 +1,9 @@
-import { CircleHelp, Magnet, Maximize2, Minus, Music2, Pencil, Plus, Redo2, RotateCcw, SlidersHorizontal, Trash2, Undo2 } from "lucide-react";
+import { Check, CircleHelp, Magnet, Maximize2, Minus, Music2, Pencil, Plus, Redo2, RotateCcw, SlidersHorizontal, Split, Trash2, Undo2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import type { NoteStore } from "../editor/noteStore";
 import type { RollEditor } from "../editor/rollEditor";
 import type { GridDisplay, PianoRoll } from "../pianoroll";
-import { Checkbox, IconButton, Popover, Segmented, Toggle } from "./ui";
+import { Button, Checkbox, IconButton, Popover, Segmented, Toggle } from "./ui";
 
 type DisplaySwitch = Exclude<keyof GridDisplay, "timeUnit">;
 
@@ -41,16 +41,36 @@ export function EditControls(props: {
   onEditing: (on: boolean) => void;
   onSnap: (on: boolean) => void;
   onScaleLock: (on: boolean) => void;
+  onSplit: () => void;
+  onFinishSplit: () => void;
 }) {
   const { editing, snap, snapAvailable, scaleLock, scaleAvailable, editor, store } = props;
-  const { onEditing, onSnap, onScaleLock } = props;
+  const { onEditing, onSnap, onScaleLock, onSplit, onFinishSplit } = props;
   return (
     <>
       <Toggle pressed={editing} onClick={() => onEditing(!editing)}>
         <Pencil size={14} />
         Edit notes
       </Toggle>
-      {editing && (
+      {editing && editor?.splitting && (
+        <>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-line" />
+          <Button variant="primary" disabled={!editor.canFinishSplit} onClick={onFinishSplit}>
+            <Check size={15} />
+            Finish split
+          </Button>
+          <Button className="ml-1" onClick={() => editor.cancelSplit()}>
+            <X size={15} />
+            Cancel
+          </Button>
+          <span role="status" aria-label="Split" className="tabular ml-2 text-xs text-muted">
+            {editor.markedCount > 0
+              ? `${editor.markedCount.toLocaleString()} solo ${editor.markedCount === 1 ? "note" : "notes"} for the new track. Click a note to change it.`
+              : "No clear solo. Click notes to mark them."}
+          </span>
+        </>
+      )}
+      {editing && !editor?.splitting && (
         <>
           <span aria-hidden="true" className="mx-1 h-5 w-px bg-line" />
           <IconButton label="Undo" disabled={!store?.canUndo} onClick={() => editor?.undo()}>
@@ -85,6 +105,15 @@ export function EditControls(props: {
             <Music2 size={15} />
             Stay in key
           </Toggle>
+          <Button
+            className="ml-1"
+            title={editor?.canSplit ? "Guess the chords and the solo, and split them into two tracks" : "Choose a pitched track to split"}
+            disabled={!editor?.canSplit}
+            onClick={onSplit}
+          >
+            <Split size={15} />
+            Split track
+          </Button>
           <span role="status" aria-label="Selection" className="tabular ml-2 text-xs text-muted">
             {editor?.status || "Click a note to select it. Double-click to add one."}
           </span>

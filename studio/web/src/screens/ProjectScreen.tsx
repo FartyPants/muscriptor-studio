@@ -13,6 +13,7 @@ import { TopBar } from "../components/TopBar";
 import { TranscribeBar } from "../components/TranscribeBar";
 import { Transport, type ProjectView } from "../components/Transport";
 import { canChangeInstrument, changeInstrument, movedFlag, restoredFlag } from "../editor/changeInstrument";
+import { NO_GRID_BEAT, splitGuess } from "../editor/splitTrack";
 import { useEditorKeys } from "../hooks/useEditorKeys";
 import { gridWithMeter, useProject, type Range } from "../hooks/useProject";
 import { useRollFrame } from "../hooks/useRollFrame";
@@ -21,6 +22,8 @@ import {
   type GridDisplay,
   type PianoRoll,
 } from "../pianoroll";
+import { upcomingColor } from "../colors";
+import { nextTrackName } from "../instruments";
 import { ProgressEstimator } from "../progress";
 import { audibleNotes } from "../score";
 
@@ -49,6 +52,13 @@ function loadDisplay(): GridDisplay {
 const toggled = (set: Set<string>, name: string) => {
   const next = new Set(set);
   if (!next.delete(name)) next.add(name);
+  return next;
+};
+
+const withName = (set: Set<string>, name: string, on: boolean) => {
+  const next = new Set(set);
+  if (on) next.add(name);
+  else next.delete(name);
   return next;
 };
 
@@ -260,6 +270,37 @@ export function ProjectScreen({
     }
   };
 
+  // Mark the likely solo of the track being edited, for the user to correct.
+  const startSplit = () => {
+    const editor = editorRef.current;
+    const store = project.store.current;
+    if (!editor || !store || !active) return;
+    const grid = doc?.beat_grid;
+    const delay = grid?.onset_delay ?? 0;
+    const guess = splitGuess(
+      store.notes.filter((n) => n.instrument === active),
+      grid?.bpm ? 60 / grid.bpm : NO_GRID_BEAT,
+      range && { from: range.start + delay, to: range.end + delay },
+    );
+    const to = nextTrackName(active, names);
+    editor.startSplit(to, guess, upcomingColor(to));
+  };
+
+  // The new track starts as the old one was, so a soloed track stays audible.
+  const finishSplit = () => {
+    const editor = editorRef.current;
+    const to = editor?.splitTarget;
+    if (!editor || !to || !active) return;
+    const wasMuted = muted.has(active);
+    const wasSolo = solo.has(active);
+    const follow = (on: boolean) => {
+      // Set either way: an undone track's name can come back with a later split.
+      setMuted((m) => withName(m, to, on && wasMuted));
+      setSolo((s) => withName(s, to, on && wasSolo));
+    };
+    if (editor.finishSplit({ undo: () => follow(false), redo: () => follow(true) })) follow(true);
+  };
+
   const rangeNotes = range
     ? notes.filter((n) => {
         const t = n.start - (doc?.beat_grid?.onset_delay ?? 0);
@@ -373,6 +414,8 @@ export function ProjectScreen({
                     setScaleLock(on);
                     if (editorRef.current) editorRef.current.scaleLock = on;
                   }}
+                  onSplit={startSplit}
+                  onFinishSplit={finishSplit}
                 />
               )}
             </RollToolbar>
@@ -426,14 +469,14 @@ export function ProjectScreen({
           solo={solo}
           active={editing ? active : null}
           onActivate={(name) => {
-            if (!editing) return;
+            if (!editing || editorRef.current?.splitting) return;
             setActive(name);
             editorRef.current?.setActive(name);
           }}
           onMute={(name) => setMuted((m) => toggled(m, name))}
           onSolo={(name) => setSolo((s) => toggled(s, name))}
           onHover={(name) => rollRef.current?.setHighlightedInstrument(name)}
-          onChangeInstrument={phase === "ready" && !working ? changeTrack : null}
+          onChangeInstrument={phase === "ready" && !working && !editorRef.current?.splitting ? changeTrack : null}
         />
       </div>
 

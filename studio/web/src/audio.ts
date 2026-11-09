@@ -1,5 +1,6 @@
 import * as Tone from "tone";
 import { WorkletSynthesizer } from "spessasynth_lib";
+import { baseInstrument } from "./instruments";
 import type { Click } from "./metronome";
 import workletUrl from "spessasynth_lib/dist/spessasynth_processor.min.js?url";
 
@@ -248,7 +249,7 @@ export class AudioEngine {
       ch = DRUM_CHANNEL;
     } else {
       ch = this.freeChannel();
-      synth.programChange(ch, GM_PROGRAM[instrument] ?? 0);
+      synth.programChange(ch, GM_PROGRAM[baseInstrument(instrument)] ?? 0);
     }
     synth.midiChannels[ch]?.setSystemParameter("isMuted", this.mutedInstruments.has(instrument));
     this.channels.set(instrument, ch);
@@ -292,7 +293,7 @@ export class AudioEngine {
     const synth = this.synth!;
     const ch = instrument === "drums" ? WARM_DRUM_CHANNEL : WARM_CHANNEL;
     if (ch === WARM_CHANNEL && this.warmInstrument !== instrument) {
-      synth.programChange(ch, GM_PROGRAM[instrument] ?? 0);
+      synth.programChange(ch, GM_PROGRAM[baseInstrument(instrument)] ?? 0);
       this.warmInstrument = instrument;
     }
     synth.noteOn(ch, pitch, NOTE_VELOCITY);

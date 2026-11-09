@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { instrumentColor, PALETTE, resetInstrumentColors } from "./colors";
+import { instrumentColor, PALETTE, resetInstrumentColors, upcomingColor } from "./colors";
 
 describe("instrumentColor", () => {
   beforeEach(() => resetInstrumentColors());
@@ -29,5 +29,22 @@ describe("instrumentColor", () => {
     const names = Array.from({ length: 12 }, (_, i) => `instrument ${i}`);
     expect(new Set(names.map(instrumentColor)).size).toBe(12);
     expect(instrumentColor("instrument 8")).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
+
+describe("upcomingColor", () => {
+  beforeEach(() => resetInstrumentColors());
+
+  it("names the colour the next instrument gets, without using it up", () => {
+    instrumentColor("violin");
+    const next = upcomingColor("cello");
+    expect(upcomingColor("cello")).toBe(next);
+    expect(instrumentColor("cello")).toBe(next);
+  });
+
+  it("keeps a name's colour, as when a split is undone and made again", () => {
+    const first = instrumentColor("violin#2");
+    instrumentColor("cello");
+    expect(upcomingColor("violin#2")).toBe(first);
   });
 });

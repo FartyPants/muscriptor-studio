@@ -21,7 +21,8 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from muscriptor.server import ExportRequest, create_app, export_events
+from muscriptor.server import ExportRequest, create_app
+from muscriptor.tokenizer.mt3 import MT3_FULL_PLUS_GROUP_NAMES
 from muscriptor.utils.beats import BeatGrid
 from muscriptor.utils.midi import ExportOptions, Timeline, nearest, resolve_grid, timeline_for
 from muscriptor.utils.sheets import MuseScoreError, MuseScoreNotFoundError
@@ -38,6 +39,7 @@ from studio.models import (
     SwitchableModel,
 )
 from studio.tagger import safe_tag
+from studio.tracks import base_instrument, write_midi
 from studio.projects import DATA_DIR, ProjectInUseError, ProjectNotFoundError, ProjectStore
 
 HERE = Path(__file__).resolve().parent
@@ -235,12 +237,34 @@ def create_studio_app(
         chosen = body.key.as_key() if body.key else None
         return await asyncio.to_thread(analyze, shown, body.beat_grid, chosen)
 
+    def request_grid(body: ExportRequest) -> BeatGrid | None:
+        if body.beat_grid is None:
+            return None
+        fields = body.beat_grid.model_dump()
+        beats = fields.pop("beats")
+        return BeatGrid(**fields, beats=None if beats is None else np.asarray(beats))
+
+    @api.post("/export")
+    async def export_midi(body: ExportRequest):
+        """Upstream's `/export`, which also knows tracks split from one instrument."""
+        unknown = sorted(
+            {base_instrument(n.instrument) for n in body.notes} - MT3_FULL_PLUS_GROUP_NAMES.keys()
+        )
+        if unknown:
+            raise HTTPException(
+                status_code=400, detail=f"unknown instrument name(s): {', '.join(unknown)}"
+            )
+        midi = await asyncio.to_thread(
+            write_midi,
+            holder.events_to_midi_bytes,
+            body.notes,
+            beat_grid=request_grid(body),
+            export=ExportOptions(**body.options.model_dump()),
+        )
+        return Response(content=midi, media_type="audio/midi")
+
     def score_inputs(body: ScoreRequest) -> tuple[BeatGrid | None, ExportOptions]:
-        grid = None
-        if body.beat_grid is not None:
-            fields = body.beat_grid.model_dump()
-            beats = fields.pop("beats")
-            grid = BeatGrid(**fields, beats=None if beats is None else np.asarray(beats))
+        grid = request_grid(body)
         options = body.options.model_dump()
         # Bar lines and note values need a grid to sit on. Upstream skips
         # quantizing when no subdivision was measured, which would let MuseScore
@@ -252,9 +276,7 @@ def create_studio_app(
 
     def score_midi(body: ScoreRequest) -> bytes:
         grid, options = score_inputs(body)
-        return holder.events_to_midi_bytes(
-            iter(export_events(body.notes)), beat_grid=grid, export=options
-        )
+        return write_midi(holder.events_to_midi_bytes, body.notes, beat_grid=grid, export=options)
 
     def score_timeline(body: ScoreRequest) -> tuple[Timeline, str]:
         """The timeline a score plays on, and what its timing comes from.

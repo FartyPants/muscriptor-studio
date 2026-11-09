@@ -39,6 +39,7 @@ function setup(notes: ProjectNote[], g: BeatGrid | null = grid) {
     setEditState: vi.fn(),
     setOverrides: vi.fn(),
     setMarquee: vi.fn(),
+    setSplitMarks: vi.fn(),
   };
   const audio = { audition: vi.fn(), seconds: 0 };
   const editor = new RollEditor(
@@ -264,5 +265,125 @@ describe("RollEditor", () => {
     const { editor } = setup([]);
     expect(editor.claims(10)).toBe(false);
     expect(editor.claims(40)).toBe(true);
+  });
+});
+
+describe("RollEditor splitting a track", () => {
+  const TO = "violin#2";
+  const song = () => [stored("a", 60, 1, 2), stored("b", 64, 3, 4), stored("c", 67, 5, 6)];
+
+  function splitting(marked: string[] = ["b"]) {
+    const parts = setup(song());
+    parts.editor.startSplit(TO, new Set(marked), "#123456");
+    return parts;
+  }
+
+  it("is only for a pitched track with notes to divide", () => {
+    const { editor } = setup(song());
+    expect(editor.canSplit).toBe(true);
+    editor.setActive("drums");
+    expect(editor.canSplit).toBe(false);
+    expect(setup([stored("a", 60, 1, 2)]).editor.canSplit).toBe(false);
+  });
+
+  it("shows the marks in the new track's colour", () => {
+    const { roll } = splitting();
+    expect(roll.setSplitMarks).toHaveBeenLastCalledWith({ notes: new Set(["b"]), color: "#123456" });
+  });
+
+  it("a click flips a mark, plays the note and moves nothing", () => {
+    const { store, audio, editor } = splitting();
+    const before = store.notes;
+    editor.down(X(1.5), Y(60), false);
+    editor.up();
+    expect(editor.markedCount).toBe(2);
+    expect(audio.audition).toHaveBeenCalledWith("violin", 60);
+    editor.down(X(1.5), Y(60), false);
+    editor.up();
+    expect(editor.markedCount).toBe(1);
+    expect(store.notes).toBe(before);
+  });
+
+  it("a drag that starts on a note flips it and moves nothing", () => {
+    const { store, editor } = splitting();
+    const before = store.notes;
+    drag(editor, X(1.5), Y(60), X(2.5), Y(70));
+    expect(store.notes).toBe(before);
+    expect(store.canUndo).toBe(false);
+  });
+
+  it("a box marks the notes inside, and Shift unmarks them", () => {
+    const { editor } = splitting([]);
+    drag(editor, X(0.5), Y(90), X(4.5), Y(50));
+    expect(editor.markedCount).toBe(2);
+    editor.down(X(2.5), Y(90), true);
+    editor.move(X(4.5), Y(50), false);
+    editor.up();
+    expect(editor.markedCount).toBe(1);
+  });
+
+  it("a click on empty space keeps the marks", () => {
+    const { editor } = splitting();
+    editor.down(X(0.2), Y(90), false);
+    editor.up();
+    expect(editor.markedCount).toBe(1);
+  });
+
+  it("can finish only when both tracks would have notes", () => {
+    expect(splitting([]).editor.canFinishSplit).toBe(false);
+    const all = splitting(["a", "b", "c"]);
+    expect(all.editor.canFinishSplit).toBe(false);
+    expect(all.editor.finishSplit()).toBe(false);
+    expect(all.store.get("a")!.instrument).toBe("violin");
+    expect(splitting().editor.canFinishSplit).toBe(true);
+  });
+
+  it("Finish moves the marked notes as one undo step", () => {
+    const { store, roll, editor } = splitting();
+    expect(editor.finishSplit()).toBe(true);
+    expect(store.get("b")!.instrument).toBe(TO);
+    expect(store.get("a")!.instrument).toBe("violin");
+    expect(editor.splitting).toBe(false);
+    expect(roll.setSplitMarks).toHaveBeenLastCalledWith(null);
+    store.undo();
+    expect(store.get("b")!.instrument).toBe("violin");
+    expect(store.canUndo).toBe(false);
+  });
+
+  it.each<[string, (editor: RollEditor) => void]>([
+    ["Cancel", (e) => e.cancelSplit()],
+    ["Escape", (e) => e.key(key("Escape"))],
+    ["leaving Edit", (e) => e.setEnabled(false)],
+    ["another track", (e) => e.setActive("cello")],
+  ])("%s ends the split and changes nothing", (_, leave) => {
+    const { store, roll, editor } = splitting();
+    const before = store.notes;
+    leave(editor);
+    expect(editor.splitting).toBe(false);
+    expect(store.notes).toBe(before);
+    expect(roll.setSplitMarks).toHaveBeenLastCalledWith(null);
+  });
+
+  it("Escape ends the split during a box drag", () => {
+    const { roll, editor } = splitting();
+    editor.down(X(0.5), Y(90), false);
+    editor.move(X(4.5), Y(50), false);
+    expect(editor.key(key("Escape"))).toBe(true);
+    expect(editor.splitting).toBe(false);
+    expect(roll.setMarquee).toHaveBeenLastCalledWith(null);
+  });
+
+  it("leaves the notes to the split: no adding, undoing or pasting", () => {
+    const { store, editor } = splitting();
+    store.apply({ remove: [] });
+    const before = store.notes;
+    editor.add(X(8), Y(80));
+    expect(editor.key(key("z", { ctrlKey: true }))).toBe(true);
+    expect(editor.key(key("v", { ctrlKey: true }))).toBe(true);
+    expect(store.notes).toBe(before);
+  });
+
+  it("leaves other keys alone, such as the arrows", () => {
+    expect(splitting().editor.key(key("ArrowLeft"))).toBe(false);
   });
 });

@@ -36,12 +36,21 @@ function shade(hex: string, factor: number): string {
 export function instrumentColor(name: string): string {
   let color = assigned.get(name);
   if (!color) {
-    const index = assigned.size;
-    const base = PALETTE[index % PALETTE.length];
-    color = index < PALETTE.length ? base : shade(base, DARKER);
+    color = nextColor();
     assigned.set(name, color);
   }
   return color;
+}
+
+/** The colour `name` has or will get. Takes nothing from the palette. */
+export function upcomingColor(name: string): string {
+  return assigned.get(name) ?? nextColor();
+}
+
+function nextColor(): string {
+  const index = assigned.size;
+  const base = PALETTE[index % PALETTE.length];
+  return index < PALETTE.length ? base : shade(base, DARKER);
 }
 
 /** Start a new project's colours. */
