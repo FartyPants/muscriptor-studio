@@ -51,7 +51,7 @@ function FormatButton(props: {
       ) : (
         <>
           <span className="text-[13px] font-semibold">{title}</span>
-          <span className="text-xs text-muted">{extension}</span>
+          <span className="max-w-full truncate px-2 text-xs text-muted">{extension}</span>
         </>
       )}
     </button>
@@ -118,6 +118,7 @@ export function ExportPanel(props: {
     trim_leading_bars: midiStart === "bar",
   };
   const stem = doc.name;
+  const mp3Name = doc.audio_name.replace(/[.][a-zA-Z0-9]+$/, "") + ".mp3";
 
   async function run(task: string, work: () => Promise<void>) {
     setBusy(task);
@@ -141,7 +142,7 @@ export function ExportPanel(props: {
     chords,
     page,
     fretboard: fretboardRequest(doc.fretboard),
-    sync: { score_filename: `${stem}.musicxml`, audio_filename: doc.audio_name, audio_duration: doc.duration ?? null },
+    sync: { score_filename: `${stem}.musicxml`, audio_filename: mp3Name, audio_duration: doc.duration ?? null },
   });
 
   // MusicXML and Sync data share one engraving, because a second one can differ
@@ -177,7 +178,7 @@ export function ExportPanel(props: {
   return (
     <SidePanel
       title="Export"
-      subtitle="Download editable files, sheet music or an audio render."
+      subtitle="Download editable files, sheet music, your original audio or a synth render."
       onClose={onClose}
     >
       {grid ? (
@@ -321,14 +322,32 @@ export function ExportPanel(props: {
               )
             }
           />
+        </div>
+        <div className="flex gap-2">
           <FormatButton
-            title="Audio"
-            extension=".wav"
+            title="Original audio"
+            extension=".mp3"
+            busy={busy === "original"}
+            disabled={anyBusy}
+            onClick={() =>
+              run("original", async () => {
+                // Saved under the name the sync data gives, so other apps can match it.
+                saveBlob(await api.audioMp3(doc.id), mp3Name);
+              })
+            }
+          />
+          <FormatButton
+            title="Synth render"
+            extension=".mp3"
             busy={busy === "wav"}
             disabled={anyBusy || noneOn}
-            onClick={() => run("wav", async () => saveBlob(await renderAudio(await midi()), `${stem}.wav`))}
+            onClick={() => run("wav", async () => saveBlob(await api.wavToMp3(await renderAudio(await midi())), `${stem} (synth render).mp3`))}
           />
         </div>
+        <p className="-mt-1 text-xs text-muted">
+          Original audio is your recording, for use with MusicXML and Sync data. Synth render is the
+          transcription played back by a synthesizer.
+        </p>
 
         <div className="rounded-control border border-line p-3">
           <div className="flex items-center justify-between gap-3">

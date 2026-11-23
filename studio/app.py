@@ -16,7 +16,7 @@ from typing import Annotated, Any, Literal
 import mido
 import numpy as np
 import soundfile as sf
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -188,6 +188,14 @@ def read_audio(path: Path):
         return _read_wav_file(io.BytesIO(data))
     except (wave.Error, EOFError):
         return read_compressed(io.BytesIO(data))
+
+
+def encode_mp3(wav: Any, rate: int) -> bytes:
+    """MP3 bytes for samples shaped (channels, n) or (n,)."""
+    data = np.asarray(wav, dtype=np.float32)
+    buffer = io.BytesIO()
+    sf.write(buffer, data.T if data.ndim > 1 else data, rate, format="MP3", subtype="MPEG_LAYER_III")
+    return buffer.getvalue()
 
 
 def grid_to_json(grid: Any) -> dict[str, Any]:
@@ -571,6 +579,38 @@ def create_studio_app(
         except ProjectNotFoundError as e:
             raise HTTPException(status_code=404, detail="no such project") from e
         return FileResponse(path, media_type=media_type)
+
+    @api.get("/projects/{project_id}/audio.mp3")
+    async def project_audio_mp3(project_id: str):
+        """The original recording as MP3. An MP3 upload is sent as it is, not re-encoded."""
+
+        def build() -> bytes:
+            path, _ = store.audio_path(project_id)
+            if path.suffix.lower() == ".mp3":
+                return path.read_bytes()
+            wav, rate = read_audio(path)
+            return encode_mp3(wav, rate)
+
+        try:
+            data = await asyncio.to_thread(build)
+        except ProjectNotFoundError as e:
+            raise HTTPException(status_code=404, detail="no such project") from e
+        return Response(content=data, media_type="audio/mpeg")
+
+    @api.post("/audio/mp3")
+    async def wav_to_mp3(request: Request):
+        """Encode a WAV sent as the request body, for the synth render."""
+        body = await request.body()
+
+        def build() -> bytes:
+            wav, rate = _read_wav_file(io.BytesIO(body))
+            return encode_mp3(wav, rate)
+
+        try:
+            data = await asyncio.to_thread(build)
+        except (wave.Error, EOFError, sf.LibsndfileError) as e:
+            raise HTTPException(status_code=400, detail="not a readable WAV file") from e
+        return Response(content=data, media_type="audio/mpeg")
 
     @api.post("/projects/{project_id}/beat-grid")
     async def beat_grid(project_id: str, body: Onsets):

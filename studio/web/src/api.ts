@@ -239,6 +239,14 @@ export const api = {
     throw new Error("the analysis ended early");
   },
 
+  /** The original recording as MP3. */
+  audioMp3: (id: string) => fetch(`/studio/api/projects/${id}/audio.mp3`).then(blob),
+
+  /** A WAV, such as the synth render, as MP3. */
+  async wavToMp3(wav: Blob): Promise<Blob> {
+    return fetch("/studio/api/audio/mp3", { method: "POST", body: wav }).then(blob);
+  },
+
   async audioFile(doc: ProjectDoc): Promise<File> {
     const resp = await fetch(`/studio/api/projects/${doc.id}/audio`);
     if (!resp.ok) throw new Error(await errorDetail(resp));
