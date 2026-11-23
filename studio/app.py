@@ -194,7 +194,8 @@ def encode_mp3(wav: Any, rate: int) -> bytes:
     """MP3 bytes for samples shaped (channels, n) or (n,)."""
     data = np.asarray(wav, dtype=np.float32)
     buffer = io.BytesIO()
-    sf.write(buffer, data.T if data.ndim > 1 else data, rate, format="MP3", subtype="MPEG_LAYER_III")
+    sf.write(buffer, data.T if data.ndim > 1 else data, rate, format="MP3", subtype="MPEG_LAYER_III",
+             bitrate_mode="VARIABLE", compression_level=0.0)
     return buffer.getvalue()
 
 
@@ -586,6 +587,8 @@ def create_studio_app(
 
         def build() -> bytes:
             path, _ = store.audio_path(project_id)
+            if not path.is_file():
+                raise HTTPException(status_code=404, detail=f"{path.name} is missing from the project folder")
             if path.suffix.lower() == ".mp3":
                 return path.read_bytes()
             wav, rate = read_audio(path)
